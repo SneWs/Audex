@@ -1,0 +1,133 @@
+@inject AudioPlayerService Player
+
+@if (Books is null)
+{
+    <MudGrid>
+        @for (var i = 0; i < 6; i++)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard>
+                    <MudCardContent>
+                        <MudSkeleton Width="60%" Height="30px" />
+                        <MudSkeleton Width="40%" />
+                        <MudSkeleton Width="30%" />
+                    </MudCardContent>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+else if (Books.Length == 0)
+{
+    <MudPaper Class="pa-12 d-flex flex-column align-center" Elevation="0" Outlined="true">
+        <MudIcon Icon="@EmptyIcon" Size="Size.Large" Class="mud-text-secondary mb-3" />
+        <MudText Typo="Typo.h6">@EmptyTitle</MudText>
+        <MudText Typo="Typo.body2" Align="Align.Center" Class="mud-text-secondary">
+            @EmptyText
+        </MudText>
+    </MudPaper>
+}
+else
+{
+    <MudGrid>
+        @foreach (var b in Books)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudCard Elevation="2" Class="d-flex flex-column" Style="height:100%">
+                    <MudCardContent Class="flex-grow-1">
+                        <div class="d-flex mb-2" style="gap:12px;">
+                            @if (b.HasCover)
+                            {
+                                <MudImage Src="@($"/api/books/{b.Id}/cover")" Width="72" Height="72"
+                                          ObjectFit="ObjectFit.Cover" Class="rounded" Alt="@b.Title" />
+                            }
+                            else
+                            {
+                                <MudAvatar Color="Color.Primary" Rounded="true" Style="width:72px;height:72px;">
+                                    <MudIcon Icon="@Icons.Material.Filled.MenuBook" />
+                                </MudAvatar>
+                            }
+                            <div style="min-width:0;">
+                                <MudText Typo="Typo.h6" Style="line-height:1.2" Class="text-truncate">@b.Title</MudText>
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary text-truncate">@b.Author</MudText>
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap align-center" style="gap:6px;">
+                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.MenuBook"
+                                     Color="Color.Default" Variant="Variant.Text">
+                                @b.ChapterCount chapter@(b.ChapterCount == 1 ? "" : "s")
+                            </MudChip>
+                            @if (b.DurationSec > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Schedule"
+                                         Color="Color.Default" Variant="Variant.Text">@FormatDuration(b.DurationSec)</MudChip>
+                            }
+                            @if (b.IsCompleted)
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.CheckCircle"
+                                         Color="Color.Success" Variant="Variant.Text">Finished</MudChip>
+                            }
+                        </div>
+                        @if (b.Genres.Count > 0)
+                        {
+                            <div class="d-flex flex-wrap mt-1" style="gap:4px;">
+                                @foreach (var g in b.Genres)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                             Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Label">@g</MudChip>
+                                }
+                            </div>
+                        }
+                        @if (b.IsStarted && !b.IsCompleted && b.DurationSec > 0)
+                        {
+                            <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Small"
+                                               Value="@ProgressPercent(b)" Class="mt-2" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                @FormatDuration(b.ProgressSec) of @FormatDuration(b.DurationSec)
+                            </MudText>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(b.Description))
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2"
+                                     Style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+                                @b.Description
+                            </MudText>
+                        }
+                    </MudCardContent>
+                    <MudCardActions>
+                        @if (b.IsStarted && !b.IsCompleted)
+                        {
+                            <MudButton StartIcon="@Icons.Material.Filled.PlayCircleFilled" Color="Color.Primary"
+                                       Variant="Variant.Filled" OnClick="() => PlayAsync(b)">Continue</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary"
+                                       Variant="Variant.Filled" OnClick="() => PlayAsync(b)">
+                                @(b.IsCompleted ? "Play again" : "Play")
+                            </MudButton>
+                        }
+                    </MudCardActions>
+                </MudCard>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public BookDto[]? Books { get; set; }
+    [Parameter] public string EmptyTitle { get; set; } = "Nothing here yet";
+    [Parameter] public string EmptyText { get; set; } = "";
+    [Parameter] public string EmptyIcon { get; set; } = Icons.Material.Filled.LibraryBooks;
+
+    async Task PlayAsync(BookDto b) => await Player.PlayAsync(b.Id);
+
+    static double ProgressPercent(BookDto b) =>
+        b.DurationSec <= 0 ? 0 : Math.Clamp(b.ProgressSec * 100.0 / b.DurationSec, 0, 100);
+
+    static string FormatDuration(int seconds)
+    {
+        var t = TimeSpan.FromSeconds(seconds);
+        return t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : $"{t.Minutes}m {t.Seconds}s";
+    }
+}

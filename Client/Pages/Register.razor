@@ -1,0 +1,104 @@
+@page "/register"
+@using System.Net.Http.Json
+@inject TokenAuthenticationStateProvider AuthService
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-8">
+    <MudPaper Elevation="3" Class="pa-8">
+        <div class="d-flex flex-column align-center mb-4">
+            <MudAvatar Color="Color.Secondary" Size="Size.Large">
+                <MudIcon Icon="@Icons.Material.Filled.PersonAdd" />
+            </MudAvatar>
+            <MudText Typo="Typo.h5" Class="mt-3">Create account</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">Start listening to your audiobooks</MudText>
+        </div>
+
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="email" Label="Email" Variant="Variant.Outlined"
+                          InputType="InputType.Email" Required="true" RequiredError="Email is required"
+                          Validation="@(new Func<string, string?>(ValidateEmail))"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" Class="mb-3" />
+            <MudTextField @bind-Value="password" Label="Password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Required="true" RequiredError="Password is required"
+                          Validation="@(new Func<string, string?>(ValidatePassword))"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" Class="mb-3" />
+            <MudTextField @bind-Value="confirmPassword" Label="Confirm password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Required="true" RequiredError="Please confirm your password"
+                          Validation="@(new Func<string, string?>(ValidateConfirm))"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" />
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-6"
+                       Disabled="_loading" OnClick="RegisterAsync">
+                @if (_loading)
+                {
+                    <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
+                    <span>Creating account...</span>
+                }
+                else
+                {
+                    <span>Create account</span>
+                }
+            </MudButton>
+        </MudForm>
+
+        <MudText Typo="Typo.body2" Align="Align.Center" Class="mt-4">
+            Already have an account? <MudLink Href="/login">Sign in</MudLink>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    MudForm _form = default!;
+    string email = string.Empty;
+    string password = string.Empty;
+    string confirmPassword = string.Empty;
+    bool _loading;
+
+    string? ValidateEmail(string value)
+        => string.IsNullOrWhiteSpace(value) || !value.Contains('@') ? "Enter a valid email address" : null;
+
+    string? ValidatePassword(string value)
+        => value is { Length: < 6 } ? "Password must be at least 6 characters" : null;
+
+    string? ValidateConfirm(string value)
+        => value != password ? "Passwords do not match" : null;
+
+    async Task RegisterAsync()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _loading = true;
+        try
+        {
+            var res = await Http.PostAsJsonAsync("/api/register", new { Email = email, Password = password });
+            if (res.IsSuccessStatusCode)
+            {
+                var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
+                if (data?.Token is not null)
+                {
+                    await AuthService.MarkUserAsAuthenticated(data.Token);
+                    Snackbar.Add("Account created", Severity.Success);
+                    Nav.NavigateTo("/");
+                    return;
+                }
+            }
+            else if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                Snackbar.Add("An account with this email already exists", Severity.Warning);
+                return;
+            }
+            Snackbar.Add("Registration failed", Severity.Error);
+        }
+        catch
+        {
+            Snackbar.Add("Unable to reach the server", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

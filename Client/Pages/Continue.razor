@@ -1,0 +1,36 @@
+@page "/continue"
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject HttpClient Http
+
+<div class="mb-4">
+    <MudText Typo="Typo.h4">Continue Listening</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">Books you've started but haven't finished</MudText>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<BookGrid Books="books"
+          EmptyTitle="Nothing in progress"
+          EmptyIcon="@Icons.Material.Filled.PlayCircleOutline"
+          EmptyText="Start playing a book and it will show up here so you can pick up where you left off." />
+
+@code {
+    BookDto[]? books;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var all = await Http.GetFromJsonAsync<BookDto[]>("/api/books") ?? Array.Empty<BookDto>();
+            books = all
+                .Where(b => b.IsStarted && !b.IsCompleted)
+                .OrderByDescending(b => b.LastPlayedAt)
+                .ToArray();
+        }
+        catch
+        {
+            books = Array.Empty<BookDto>();
+        }
+    }
+}

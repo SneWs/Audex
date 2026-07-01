@@ -1,0 +1,43 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "5080:5000"
+    volumes:
+      # Host path with audiobook files -> container. Set AUDIOBOOKS_PATH in .env to override.
+      - ${AUDIOBOOKS_PATH:-./audio-source}:/audio-source
+    environment:
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=audiobook;Username=postgres;Password=secret
+      - AudiobookSettings__LibraryPath=/audio-source
+      - Jwt__Secret=super_secret_key_please_change_in_production_0123456789
+    depends_on:
+      db:
+        condition: service_healthy
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    ports:
+      - "5001:80"
+    depends_on:
+      - api
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: audiobook
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d audiobook"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata: {}

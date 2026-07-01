@@ -1,0 +1,33 @@
+@page "/recents"
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject HttpClient Http
+
+<div class="mb-4">
+    <MudText Typo="Typo.h4">Recently Added</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">The latest audiobooks added to your library</MudText>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<BookGrid Books="books"
+          EmptyTitle="Nothing added yet"
+          EmptyIcon="@Icons.Material.Filled.NewReleases"
+          EmptyText="Newly indexed audiobooks will appear here." />
+
+@code {
+    BookDto[]? books;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var all = await Http.GetFromJsonAsync<BookDto[]>("/api/books") ?? Array.Empty<BookDto>();
+            books = all.OrderByDescending(b => b.AddedAt).Take(20).ToArray();
+        }
+        catch
+        {
+            books = Array.Empty<BookDto>();
+        }
+    }
+}

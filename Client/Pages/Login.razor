@@ -1,0 +1,83 @@
+@page "/login"
+@using System.Net.Http.Json
+@inject TokenAuthenticationStateProvider AuthService
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="mt-8">
+    <MudPaper Elevation="3" Class="pa-8">
+        <div class="d-flex flex-column align-center mb-4">
+            <MudAvatar Color="Color.Primary" Size="Size.Large">
+                <MudIcon Icon="@Icons.Material.Filled.Lock" />
+            </MudAvatar>
+            <MudText Typo="Typo.h5" Class="mt-3">Sign in</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">Welcome back to your audiobook library</MudText>
+        </div>
+
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="email" Label="Email" Variant="Variant.Outlined"
+                          InputType="InputType.Email" Required="true" RequiredError="Email is required"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" Class="mb-3" />
+            <MudTextField @bind-Value="password" Label="Password" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Required="true" RequiredError="Password is required"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" />
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-6"
+                       Disabled="_loading" OnClick="LoginAsync">
+                @if (_loading)
+                {
+                    <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
+                    <span>Signing in...</span>
+                }
+                else
+                {
+                    <span>Sign in</span>
+                }
+            </MudButton>
+        </MudForm>
+
+        <MudText Typo="Typo.body2" Align="Align.Center" Class="mt-4">
+            Don't have an account? <MudLink Href="/register">Create one</MudLink>
+        </MudText>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    MudForm _form = default!;
+    string email = string.Empty;
+    string password = string.Empty;
+    bool _loading;
+
+    async Task LoginAsync()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _loading = true;
+        try
+        {
+            var res = await Http.PostAsJsonAsync("/api/login", new { Email = email, Password = password });
+            if (res.IsSuccessStatusCode)
+            {
+                var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
+                if (data?.Token is not null)
+                {
+                    await AuthService.MarkUserAsAuthenticated(data.Token);
+                    Snackbar.Add("Signed in successfully", Severity.Success);
+                    Nav.NavigateTo("/");
+                    return;
+                }
+            }
+            Snackbar.Add("Invalid email or password", Severity.Error);
+        }
+        catch
+        {
+            Snackbar.Add("Unable to reach the server", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

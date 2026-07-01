@@ -1,0 +1,125 @@
+@using System.Net.Http.Json
+@using System.Security.Claims
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject AudioPlayerService Player
+@inject IJSRuntime JS
+@inject HttpClient Http
+@inject AuthenticationStateProvider AuthProvider
+
+@if (Player.Current is not null)
+{
+    <MudPaper Square="true" Elevation="8"
+              Style="position:fixed;bottom:0;left:0;right:0;z-index:1300;"
+              Class="pa-2">
+        <div class="d-flex align-center" style="gap:16px;">
+            <MudAvatar Color="Color.Primary" Class="ml-2">
+                <MudIcon Icon="@Icons.Material.Filled.Headphones" />
+            </MudAvatar>
+            <div style="min-width:160px;max-width:260px;">
+                <MudText Typo="Typo.subtitle2" Style="line-height:1.15" Class="text-truncate">@Player.Current.Title</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary text-truncate">
+                    @if (Player.CurrentChapter is not null)
+                    {
+                        <span>@Player.CurrentChapter.Title (@(Player.CurrentChapterIndex + 1)/@Player.Current.Chapters.Count)</span>
+                    }
+                </MudText>
+            </div>
+
+            <MudTooltip Text="Previous chapter">
+                <MudIconButton Icon="@Icons.Material.Filled.SkipPrevious"
+                               Disabled="!Player.HasPrevious" OnClick="Previous" />
+            </MudTooltip>
+
+            <audio id="globalPlayer" src="@Src" controls autoplay
+                   style="flex:1;min-width:200px;height:40px;"
+                   @onpause="OnPauseAsync" @onended="OnEndedAsync" @ontimeupdate="OnTimeUpdateAsync"></audio>
+
+            <MudTooltip Text="Next chapter">
+                <MudIconButton Icon="@Icons.Material.Filled.SkipNext"
+                               Disabled="!Player.HasNext" OnClick="Next" />
+            </MudTooltip>
+
+            <MudTooltip Text="Close player">
+                <MudIconButton Icon="@Icons.Material.Filled.Close" OnClick="Player.Close" />
+            </MudTooltip>
+        </div>
+    </MudPaper>
+}
+
+@code {
+    int? _loadedChapterId;
+    DateTime _lastSaved = DateTime.MinValue;
+
+    string Src => Player.CurrentChapter is null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
+
+    protected override void OnInitialized() => Player.Changed += OnChanged;
+
+    void OnChanged() => InvokeAsync(StateHasChanged);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Player.CurrentChapter is null)
+        {
+            _loadedChapterId = null;
+            return;
+        }
+
+        if (Player.CurrentChapter.Id != _loadedChapterId)
+        {
+            _loadedChapterId = Player.CurrentChapter.Id;
+            var seek = Player.ConsumePendingSeek();
+            await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", seek);
+        }
+    }
+
+    async Task Next()
+    {
+        await SaveProgressAsync();
+        Player.Next();
+    }
+
+    async Task Previous()
+    {
+        await SaveProgressAsync();
+        Player.Previous();
+    }
+
+    async Task OnEndedAsync()
+    {
+        // Persist that this chapter finished, then auto-advance.
+        await SaveProgressAsync();
+        Player.Next();
+    }
+
+    async Task OnPauseAsync() => await SaveProgressAsync();
+
+    async Task OnTimeUpdateAsync()
+    {
+        // Throttle periodic saves so progress survives navigation without pausing.
+        if ((DateTime.UtcNow - _lastSaved).TotalSeconds < 10) return;
+        await SaveProgressAsync();
+    }
+
+    async Task SaveProgressAsync()
+    {
+        if (Player.CurrentChapter is null || Player.Current is null) return;
+
+        var userId = await UserIdAsync();
+        if (userId <= 0) return;
+
+        var current = await JS.InvokeAsync<double>("getCurrentTime", "globalPlayer");
+        _lastSaved = DateTime.UtcNow;
+
+        await Http.PostAsJsonAsync($"/api/users/{userId}/progress",
+            new { BookId = Player.Current.Id, ChapterId = Player.CurrentChapter.Id, PositionSec = (int)current });
+    }
+
+    async Task<int> UserIdAsync()
+    {
+        var user = (await AuthProvider.GetAuthenticationStateAsync()).User;
+        return int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
+    }
+
+    public void Dispose() => Player.Changed -= OnChanged;
+}

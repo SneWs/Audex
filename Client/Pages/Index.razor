@@ -1,0 +1,78 @@
+@page "/"
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<div class="d-flex align-center justify-space-between mb-4">
+    <div>
+        <MudText Typo="Typo.h4">My Library</MudText>
+        <MudText Typo="Typo.body1" Class="mud-text-secondary">
+            @if (books is not null)
+            {
+                <span>@books.Length audiobook@(books.Length == 1 ? "" : "s") available</span>
+            }
+            else
+            {
+                <span>Loading your collection…</span>
+            }
+        </MudText>
+    </div>
+    <MudButton StartIcon="@Icons.Material.Filled.Sync" Color="Color.Primary" Variant="Variant.Filled"
+               Disabled="_scanning" OnClick="RescanAsync">
+        @(_scanning ? "Scanning…" : "Re-scan library")
+    </MudButton>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<BookGrid Books="books"
+          EmptyTitle="No audiobooks yet"
+          EmptyIcon="@Icons.Material.Filled.LibraryBooks"
+          EmptyText="Add .mp3 or .m4a files to the configured library folder, then hit Re-scan library." />
+
+@code {
+    BookDto[]? books;
+    bool _scanning;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    async Task LoadAsync()
+    {
+        books = null;
+        try
+        {
+            books = await Http.GetFromJsonAsync<BookDto[]>("/api/books") ?? Array.Empty<BookDto>();
+        }
+        catch
+        {
+            books = Array.Empty<BookDto>();
+        }
+    }
+
+    async Task RescanAsync()
+    {
+        _scanning = true;
+        try
+        {
+            var res = await Http.PostAsync("/api/books/rescan", null);
+            if (res.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+                Snackbar.Add($"Re-scan complete — {books?.Length ?? 0} book(s) in your library.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Re-scan failed. Please try again.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Re-scan failed. Please try again.", Severity.Error);
+        }
+        finally
+        {
+            _scanning = false;
+        }
+    }
+}
