@@ -66,6 +66,7 @@ public class AudioIndexer : IAudioIndexer
 
         var scanned = new List<ScannedChapter>();
         var author = "Unknown";
+        string? readBy = null;
         string? description = null;
         string? album = null;
         var genreNames = new List<string>();
@@ -84,6 +85,7 @@ public class AudioIndexer : IAudioIndexer
                 TrackNumber: meta.Track > 0 ? meta.Track : index));
 
             if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author)) author = meta.Author!;
+            if (readBy is null && !string.IsNullOrWhiteSpace(meta.ReadBy)) readBy = meta.ReadBy;
             if (album is null && !string.IsNullOrWhiteSpace(meta.Album)) album = meta.Album;
             if (description is null && !string.IsNullOrWhiteSpace(meta.Description)) description = meta.Description;
             if (meta.HasCover) hasCover = true;
@@ -158,6 +160,7 @@ public class AudioIndexer : IAudioIndexer
 
         book.Title = title;
         book.Author = author;
+        book.ReadBy = readBy;
         book.Description = description;
         book.HasCover = hasCover;
         book.DurationSec = totalDuration;
@@ -371,6 +374,7 @@ public class AudioIndexer : IAudioIndexer
             {
                 Title = tag.Title,
                 Author = tag.FirstPerformer ?? tag.FirstAlbumArtist ?? tag.FirstComposer,
+                ReadBy = FirstNonEmpty(tag.Composers) ?? FirstNonEmpty(tag.AlbumArtists),
                 Album = tag.Album,
                 Genres = tag.Genres ?? Array.Empty<string>(),
                 Description = string.IsNullOrWhiteSpace(tag.Comment) ? tag.Album : tag.Comment,
@@ -387,7 +391,11 @@ public class AudioIndexer : IAudioIndexer
     }
 
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
-    private static string Show(string[]? values) =>
+    private static string? FirstNonEmpty(string[]? values)
+    {
+        var picked = values?.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToArray();
+        return picked is { Length: > 0 } ? string.Join(", ", picked) : null;
+    }    private static string Show(string[]? values) =>
         values is { Length: > 0 } ? string.Join(", ", values) : "-";
 
     private record ScannedChapter(string Title, string FilePath, int DurationSec, int TrackNumber);
@@ -396,6 +404,7 @@ public class AudioIndexer : IAudioIndexer
     {
         public string? Title { get; set; }
         public string? Author { get; set; }
+        public string? ReadBy { get; set; }
         public string? Album { get; set; }
         public string[] Genres { get; set; } = Array.Empty<string>();
         public string? Description { get; set; }

@@ -1,0 +1,42 @@
+@page "/favorites"
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject HttpClient Http
+
+<div class="mb-4">
+    <MudText Typo="Typo.h4">Favorites</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">Books you've marked as favorites</MudText>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<BookGrid Books="books"
+          EmptyTitle="No favorites yet"
+          EmptyIcon="@Icons.Material.Filled.FavoriteBorder"
+          EmptyText="Tap the heart on any book to add it to your favorites."
+          OnFavoriteChanged="OnFavoriteChanged" />
+
+@code {
+    BookDto[]? books;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    async Task LoadAsync()
+    {
+        try
+        {
+            var all = await Http.GetFromJsonAsync<BookDto[]>("/api/books") ?? Array.Empty<BookDto>();
+            books = all.Where(b => b.IsFavorite).OrderBy(b => b.Title).ToArray();
+        }
+        catch
+        {
+            books = Array.Empty<BookDto>();
+        }
+    }
+
+    void OnFavoriteChanged(BookDto b)
+    {
+        if (!b.IsFavorite && books is not null)
+            books = books.Where(x => x.Id != b.Id).ToArray();
+    }
+}

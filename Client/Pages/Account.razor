@@ -1,0 +1,212 @@
+@page "/account"
+@using System.Net.Http.Json
+@attribute [Authorize]
+@inject HttpClient Http
+@inject TokenAuthenticationStateProvider AuthService
+@inject ISnackbar Snackbar
+
+<div class="mb-4">
+    <MudText Typo="Typo.h4">Account</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">Manage your account details and security</MudText>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<MudGrid>
+    <MudItem xs="12" md="6">
+        <MudPaper Elevation="2" Class="pa-6" Style="height:100%">
+            <div class="d-flex align-center mb-4" style="gap:12px;">
+                <MudAvatar Color="Color.Primary">
+                    <MudIcon Icon="@Icons.Material.Filled.AccountCircle" />
+                </MudAvatar>
+                <div>
+                    <MudText Typo="Typo.h6">Account details</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Your sign-in email</MudText>
+                </div>
+            </div>
+
+            @if (_account is null)
+            {
+                <MudSkeleton Width="70%" Height="40px" />
+            }
+            else
+            {
+                <MudForm @ref="_emailForm">
+                    <MudTextField @bind-Value="_newEmail" Label="Email" Variant="Variant.Outlined"
+                                  InputType="InputType.Email" Required="true" RequiredError="Email is required"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Email" Class="mb-3" />
+                    <MudTextField @bind-Value="_emailPassword" Label="Current password" Variant="Variant.Outlined"
+                                  InputType="InputType.Password" Required="true" RequiredError="Password is required"
+                                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
+                               Disabled="_savingEmail" OnClick="ChangeEmailAsync">
+                        @if (_savingEmail)
+                        {
+                            <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
+                            <span>Saving…</span>
+                        }
+                        else
+                        {
+                            <span>Update email</span>
+                        }
+                    </MudButton>
+                </MudForm>
+            }
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudPaper Elevation="2" Class="pa-6" Style="height:100%">
+            <div class="d-flex align-center mb-4" style="gap:12px;">
+                <MudAvatar Color="Color.Secondary">
+                    <MudIcon Icon="@Icons.Material.Filled.Lock" />
+                </MudAvatar>
+                <div>
+                    <MudText Typo="Typo.h6">Change password</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Use at least 6 characters</MudText>
+                </div>
+            </div>
+
+            <MudForm @ref="_pwForm">
+                <MudTextField @bind-Value="_currentPassword" Label="Current password" Variant="Variant.Outlined"
+                              InputType="InputType.Password" Required="true" RequiredError="Current password is required"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" Class="mb-3" />
+                <MudTextField @bind-Value="_newPassword" Label="New password" Variant="Variant.Outlined"
+                              InputType="InputType.Password" Required="true"
+                              Validation="@(new Func<string, string?>(ValidateNewPassword))"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" Class="mb-3" />
+                <MudTextField @bind-Value="_confirmPassword" Label="Confirm new password" Variant="Variant.Outlined"
+                              InputType="InputType.Password" Required="true"
+                              Validation="@(new Func<string, string?>(ValidateConfirm))"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Password" />
+                <MudButton Variant="Variant.Filled" Color="Color.Secondary" Class="mt-4"
+                           Disabled="_savingPassword" OnClick="ChangePasswordAsync">
+                    @if (_savingPassword)
+                    {
+                        <MudProgressCircular Class="mr-2" Size="Size.Small" Indeterminate="true" />
+                        <span>Saving…</span>
+                    }
+                    else
+                    {
+                        <span>Update password</span>
+                    }
+                </MudButton>
+            </MudForm>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    AccountDto? _account;
+
+    MudForm _emailForm = default!;
+    string _newEmail = string.Empty;
+    string _emailPassword = string.Empty;
+    bool _savingEmail;
+
+    MudForm _pwForm = default!;
+    string _currentPassword = string.Empty;
+    string _newPassword = string.Empty;
+    string _confirmPassword = string.Empty;
+    bool _savingPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _account = await Http.GetFromJsonAsync<AccountDto>("/api/account");
+            _newEmail = _account?.Email ?? string.Empty;
+        }
+        catch
+        {
+            Snackbar.Add("Unable to load account details.", Severity.Error);
+        }
+    }
+
+    string? ValidateNewPassword(string value) =>
+        string.IsNullOrEmpty(value) ? "New password is required"
+        : value.Length < 6 ? "Password must be at least 6 characters"
+        : null;
+
+    string? ValidateConfirm(string value) =>
+        value != _newPassword ? "Passwords do not match" : null;
+
+    async Task ChangeEmailAsync()
+    {
+        await _emailForm.ValidateAsync();
+        if (!_emailForm.IsValid) return;
+
+        _savingEmail = true;
+        try
+        {
+            var res = await Http.PutAsJsonAsync("/api/account/email",
+                new { NewEmail = _newEmail, CurrentPassword = _emailPassword });
+            if (res.IsSuccessStatusCode)
+            {
+                var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
+                if (data?.Token is not null)
+                    await AuthService.MarkUserAsAuthenticated(data.Token);
+                _account = new AccountDto { Id = _account?.Id ?? 0, Email = _newEmail };
+                _emailPassword = string.Empty;
+                Snackbar.Add("Email updated.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(await ErrorMessage(res, "Unable to update email."), Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to reach the server.", Severity.Error);
+        }
+        finally
+        {
+            _savingEmail = false;
+        }
+    }
+
+    async Task ChangePasswordAsync()
+    {
+        await _pwForm.ValidateAsync();
+        if (!_pwForm.IsValid) return;
+
+        _savingPassword = true;
+        try
+        {
+            var res = await Http.PutAsJsonAsync("/api/account/password",
+                new { CurrentPassword = _currentPassword, NewPassword = _newPassword });
+            if (res.IsSuccessStatusCode)
+            {
+                _currentPassword = _newPassword = _confirmPassword = string.Empty;
+                Snackbar.Add("Password updated.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add(await ErrorMessage(res, "Unable to update password."), Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to reach the server.", Severity.Error);
+        }
+        finally
+        {
+            _savingPassword = false;
+        }
+    }
+
+    static async Task<string> ErrorMessage(HttpResponseMessage res, string fallback)
+    {
+        try
+        {
+            var problem = await res.Content.ReadFromJsonAsync<MessageResponse>();
+            return string.IsNullOrWhiteSpace(problem?.Message) ? fallback : problem!.Message!;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    class MessageResponse { public string? Message { get; init; } }
+}

@@ -15,6 +15,7 @@ public class BookDto
     public int Id { get; init; }
     public string Title { get; init; } = default!;
     public string Author { get; init; } = default!;
+    public string? ReadBy { get; init; }
     public int DurationSec { get; init; }
     public int ChapterCount { get; init; }
     public bool HasCover { get; init; }
@@ -22,6 +23,7 @@ public class BookDto
     public DateTime AddedAt { get; init; }
     public int ProgressSec { get; init; }
     public bool IsCompleted { get; init; }
+    public bool IsFavorite { get; set; }
     public DateTime? LastPlayedAt { get; init; }
     public int? ResumeChapterId { get; init; }
     public int ResumePositionSec { get; init; }
@@ -33,6 +35,12 @@ public class GenreDto
 {
     public string Name { get; init; } = default!;
     public int Count { get; init; }
+}
+
+public class AccountDto
+{
+    public int Id { get; init; }
+    public string Email { get; init; } = default!;
 }
 
 public class BookDetailDto : BookDto

@@ -33,6 +33,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo
+    {
+        Title = "Audiobook Library API",
+        Version = "v1",
+        Description = "REST API for the Audiobook Library: browse books, stream chapters, track progress, manage favorites and account."
+    });
+
+    const string schemeId = "Bearer";
+    options.AddSecurityDefinition(schemeId, new Microsoft.OpenApi.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.ParameterLocation.Header,
+        Description = "Enter the JWT returned by /api/login or /api/register (no 'Bearer' prefix needed)."
+    });
+    options.AddSecurityRequirement(doc => new Microsoft.OpenApi.OpenApiSecurityRequirement
+    {
+        { new Microsoft.OpenApi.OpenApiSecuritySchemeReference(schemeId, doc, null), new List<string>() }
+    });
+});
+
 builder.Services.AddScoped<IAudioIndexer, AudioIndexer>();
 builder.Services.AddHostedService<AudioIndexBackgroundService>();
 
@@ -51,13 +77,28 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapPost("/api/register", async (LoginRequest req, AppDbContext db) =>
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Audiobook Library API v1");
+    options.DocumentTitle = "Audiobook Library API";
+});
+
+var auth = app.MapGroup("").WithTags("Authentication");
+var books = app.MapGroup("").WithTags("Books");
+var genres = app.MapGroup("").WithTags("Genres");
+var chapters = app.MapGroup("").WithTags("Chapters");
+var progress = app.MapGroup("").WithTags("Progress");
+var favorites = app.MapGroup("").WithTags("Favorites");
+var account = app.MapGroup("").WithTags("Account");
+
+auth.MapPost("/api/register", async (LoginRequest req, AppDbContext db) =>
 {
     if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
-        return Results.BadRequest(new { message = "Email and password are required." });
+        return Results.BadRequest(new MessageResponse("Email and password are required."));
 
     if (await db.Users.AnyAsync(u => u.Email == req.Email))
-        return Results.Conflict(new { message = "An account with this email already exists." });
+        return Results.Conflict(new MessageResponse("An account with this email already exists."));
 
     var user = new User
     {
@@ -67,19 +108,26 @@ app.MapPost("/api/register", async (LoginRequest req, AppDbContext db) =>
     db.Users.Add(user);
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { Token = GenerateToken(user) });
-});
+    return Results.Ok(new AuthResponse(GenerateToken(user)));
+})
+.WithSummary("Register a new account")
+.Produces<AuthResponse>()
+.Produces<MessageResponse>(StatusCodes.Status400BadRequest)
+.Produces<MessageResponse>(StatusCodes.Status409Conflict);
 
-app.MapPost("/api/login", async (LoginRequest req, AppDbContext db) =>
+auth.MapPost("/api/login", async (LoginRequest req, AppDbContext db) =>
 {
     var user = await db.Users.FirstOrDefaultAsync(u => u.Email == req.Email);
     if (user is null || !BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
         return Results.Unauthorized();
 
-    return Results.Ok(new { Token = GenerateToken(user) });
-});
+    return Results.Ok(new AuthResponse(GenerateToken(user)));
+})
+.WithSummary("Sign in and obtain a JWT")
+.Produces<AuthResponse>()
+.Produces(StatusCodes.Status401Unauthorized);
 
-app.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
+books.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
     var userId = GetUserId(principal);
     var books = await db.Books.AsNoTracking()
@@ -91,6 +139,11 @@ app.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
         .Where(p => p.UserId == userId)
         .ToListAsync();
     var progById = progress.ToDictionary(p => p.BookId);
+
+    var favoriteIds = (await db.Favorites.AsNoTracking()
+        .Where(f => f.UserId == userId)
+        .Select(f => f.BookId)
+        .ToListAsync()).ToHashSet();
 
     var progressedIds = progById.Keys.ToList();
     var chaptersByBook = (await db.Chapters.AsNoTracking()
@@ -122,6 +175,7 @@ app.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
             Id = b.Id,
             Title = b.Title,
             Author = b.Author,
+            ReadBy = b.ReadBy,
             DurationSec = b.DurationSec,
             ChapterCount = b.ChapterCount,
             HasCover = b.HasCover,
@@ -129,6 +183,7 @@ app.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
             AddedAt = b.AddedAt,
             ProgressSec = progressSec,
             IsCompleted = completed,
+            IsFavorite = favoriteIds.Contains(b.Id),
             LastPlayedAt = lastPlayed,
             ResumeChapterId = resumeChapterId,
             ResumePositionSec = resumePos,
@@ -137,17 +192,22 @@ app.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
     }).ToList();
 
     return Results.Ok(result);
-}).RequireAuthorization();
+})
+.RequireAuthorization()
+.WithSummary("List all audiobooks with the caller's progress and favorite state")
+.Produces<List<BookDto>>();
 
-app.MapGet("/api/genres", async (AppDbContext db) =>
+genres.MapGet("/api/genres", async (AppDbContext db) =>
     await db.Genres
         .Select(g => new GenreDto { Name = g.Name, Count = g.Books.Count })
         .Where(g => g.Count > 0)
         .OrderByDescending(g => g.Count).ThenBy(g => g.Name)
         .ToListAsync())
-    .RequireAuthorization();
+    .RequireAuthorization()
+    .WithSummary("List genres with book counts")
+    .Produces<List<GenreDto>>();
 
-app.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal principal) =>
+books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrincipal principal) =>
 {
     var b = await db.Books
         .Include(x => x.Chapters)
@@ -168,11 +228,15 @@ app.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrincipa
     if (p is not null)
         (progressSec, completed) = ComputeProgress(orderedChapters, p);
 
+    var isFavorite = await db.Favorites.AsNoTracking()
+        .AnyAsync(f => f.UserId == userId && f.BookId == id);
+
     return Results.Ok(new BookDetailDto
     {
         Id = b.Id,
         Title = b.Title,
         Author = b.Author,
+        ReadBy = b.ReadBy,
         DurationSec = b.DurationSec,
         ChapterCount = b.ChapterCount,
         HasCover = b.HasCover,
@@ -180,6 +244,7 @@ app.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrincipa
         AddedAt = b.AddedAt,
         ProgressSec = progressSec,
         IsCompleted = completed,
+        IsFavorite = isFavorite,
         LastPlayedAt = p?.UpdatedAt,
         ResumeChapterId = p?.ChapterId,
         ResumePositionSec = p?.PositionSec ?? 0,
@@ -194,16 +259,23 @@ app.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrincipa
             })
             .ToList()
     });
-}).RequireAuthorization();
+})
+.RequireAuthorization()
+.WithSummary("Get a single audiobook with chapters, progress and favorite state")
+.Produces<BookDetailDto>()
+.Produces(StatusCodes.Status404NotFound);
 
-app.MapPost("/api/books/rescan", async (IAudioIndexer indexer, AppDbContext db, CancellationToken ct) =>
+books.MapPost("/api/books/rescan", async (IAudioIndexer indexer, AppDbContext db, CancellationToken ct) =>
 {
     await indexer.InitialScanAsync(ct);
     var count = await db.Books.CountAsync(ct);
-    return Results.Ok(new { count });
-}).RequireAuthorization();
+    return Results.Ok(new RescanResponse(count));
+})
+.RequireAuthorization()
+.WithSummary("Trigger a full re-scan of the library (progress is preserved)")
+.Produces<RescanResponse>();
 
-app.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
+books.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
 {
     var chapter = await db.Chapters
         .Where(c => c.BookId == id)
@@ -226,18 +298,24 @@ app.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions
     {
         return Results.NotFound();
     }
-});
+})
+.WithSummary("Get the cover image for a book (extracted from its audio tags)")
+.Produces(StatusCodes.Status200OK, contentType: "image/jpeg")
+.Produces(StatusCodes.Status404NotFound);
 
-app.MapGet("/api/chapters/{id:int}/audio", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
+chapters.MapGet("/api/chapters/{id:int}/audio", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
 {
     var chapter = await db.Chapters.FindAsync(id);
     if (chapter is null) return Results.NotFound();
     var path = Path.Combine(opt.Value.LibraryPath, chapter.FilePath);
     if (!File.Exists(path)) return Results.NotFound();
     return Results.File(path, ContentTypeFor(path), enableRangeProcessing: true);
-});
+})
+.WithSummary("Stream a chapter's audio file (supports range requests)")
+.Produces(StatusCodes.Status200OK, contentType: "audio/mpeg")
+.Produces(StatusCodes.Status404NotFound);
 
-app.MapPost("/api/users/{userId:int}/progress", async (int userId, ProgressDto dto, AppDbContext db) =>
+progress.MapPost("/api/users/{userId:int}/progress", async (int userId, ProgressDto dto, AppDbContext db) =>
 {
     var progress = await db.Progress.FirstOrDefaultAsync(p => p.UserId == userId && p.BookId == dto.BookId);
     if (progress is null)
@@ -253,7 +331,107 @@ app.MapPost("/api/users/{userId:int}/progress", async (int userId, ProgressDto d
     }
     await db.SaveChangesAsync();
     return Results.Ok();
-}).RequireAuthorization();
+})
+.RequireAuthorization()
+.WithSummary("Save listening progress for a book")
+.Accepts<ProgressDto>("application/json")
+.Produces(StatusCodes.Status200OK);
+
+favorites.MapPut("/api/books/{id:int}/favorite", async (int id, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var userId = GetUserId(principal);
+    if (!await db.Books.AnyAsync(b => b.Id == id)) return Results.NotFound();
+
+    var exists = await db.Favorites.AnyAsync(f => f.UserId == userId && f.BookId == id);
+    if (!exists)
+    {
+        db.Favorites.Add(new Favorite { UserId = userId, BookId = id, CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync();
+    }
+    return Results.Ok(new FavoriteResponse(true));
+})
+.RequireAuthorization()
+.WithSummary("Mark a book as a favorite")
+.Produces<FavoriteResponse>()
+.Produces(StatusCodes.Status404NotFound);
+
+favorites.MapDelete("/api/books/{id:int}/favorite", async (int id, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var userId = GetUserId(principal);
+    var fav = await db.Favorites.FirstOrDefaultAsync(f => f.UserId == userId && f.BookId == id);
+    if (fav is not null)
+    {
+        db.Favorites.Remove(fav);
+        await db.SaveChangesAsync();
+    }
+    return Results.Ok(new FavoriteResponse(false));
+})
+.RequireAuthorization()
+.WithSummary("Remove a book from favorites")
+.Produces<FavoriteResponse>();
+
+account.MapGet("/api/account", async (AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var userId = GetUserId(principal);
+    var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+    return user is null ? Results.NotFound() : Results.Ok(new AccountDto(user.Id, user.Email));
+})
+.RequireAuthorization()
+.WithSummary("Get the current account's details")
+.Produces<AccountDto>()
+.Produces(StatusCodes.Status404NotFound);
+
+account.MapPut("/api/account/email", async (ChangeEmailRequest req, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    if (string.IsNullOrWhiteSpace(req.NewEmail))
+        return Results.BadRequest(new MessageResponse("Email is required."));
+
+    var userId = GetUserId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null) return Results.NotFound();
+
+    if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
+        return Results.BadRequest(new MessageResponse("Current password is incorrect."));
+
+    var newEmail = req.NewEmail.Trim();
+    if (!string.Equals(newEmail, user.Email, StringComparison.OrdinalIgnoreCase)
+        && await db.Users.AnyAsync(u => u.Email == newEmail))
+        return Results.Conflict(new MessageResponse("An account with this email already exists."));
+
+    user.Email = newEmail;
+    await db.SaveChangesAsync();
+    return Results.Ok(new EmailChangeResponse(GenerateToken(user), user.Email));
+})
+.RequireAuthorization()
+.WithSummary("Change the account email (re-issues a JWT)")
+.Accepts<ChangeEmailRequest>("application/json")
+.Produces<EmailChangeResponse>()
+.Produces<MessageResponse>(StatusCodes.Status400BadRequest)
+.Produces<MessageResponse>(StatusCodes.Status409Conflict)
+.Produces(StatusCodes.Status404NotFound);
+
+account.MapPut("/api/account/password", async (ChangePasswordRequest req, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 6)
+        return Results.BadRequest(new MessageResponse("New password must be at least 6 characters."));
+
+    var userId = GetUserId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null) return Results.NotFound();
+
+    if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
+        return Results.BadRequest(new MessageResponse("Current password is incorrect."));
+
+    user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+    await db.SaveChangesAsync();
+    return Results.Ok();
+})
+.RequireAuthorization()
+.WithSummary("Change the account password")
+.Accepts<ChangePasswordRequest>("application/json")
+.Produces(StatusCodes.Status200OK)
+.Produces<MessageResponse>(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound);
 
 app.Run();
 
