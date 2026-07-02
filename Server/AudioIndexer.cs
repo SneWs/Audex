@@ -1,6 +1,8 @@
+using Grenis.AudioBooks.Server.Database;
+using Grenis.AudioBooks.Server.Database.Tables;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using Server;
+
+namespace Grenis.AudioBooks.Server;
 
 public class AudioIndexer : IAudioIndexer
 {

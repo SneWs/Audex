@@ -1,5 +1,7 @@
-namespace Server;
+using Grenis.AudioBooks.Server.Database.Tables;
 using Microsoft.EntityFrameworkCore;
+
+namespace Grenis.AudioBooks.Server.Database;
 
 public class AppDbContext : DbContext
 {

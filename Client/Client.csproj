@@ -3,6 +3,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AssemblyName>Grenis.AudioBooks.Client</AssemblyName>
+    <RootNamespace>Grenis.AudioBooks.Client</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
@@ -14,6 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Books.Core/Books.Core.csproj" />
-    <Using Include="Books.Core" />
+    <Using Include="Grenis.AudioBooks.Core" />
   </ItemGroup>
 </Project>

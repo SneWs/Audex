@@ -2,6 +2,8 @@ using System.Security.Claims;
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.Authorization;
 
+namespace Grenis.AudioBooks.Client;
+
 public class TokenAuthenticationStateProvider : AuthenticationStateProvider
 {
     private readonly ILocalStorageService _storage;

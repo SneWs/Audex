@@ -1,5 +1,4 @@
-using System.Collections.Generic;
-namespace Server;
+namespace Grenis.AudioBooks.Server.Database.Tables;
 public class Progress
 {
     public int UserId { get; set; }

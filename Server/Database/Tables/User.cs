@@ -1,4 +1,4 @@
-namespace Server;
+namespace Grenis.AudioBooks.Server.Database.Tables;
 public class User
 {
     public int Id { get; set; }

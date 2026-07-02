@@ -1,4 +1,5 @@
-using System.IO;
+namespace Grenis.AudioBooks.Server;
+
 public interface IAudioIndexer
 {
     string RootPath { get; }

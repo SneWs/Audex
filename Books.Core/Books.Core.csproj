@@ -3,5 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AssemblyName>Grenis.AudioBooks.Core</AssemblyName>
+    <RootNamespace>Grenis.AudioBooks.Core</RootNamespace>
   </PropertyGroup>
 </Project>

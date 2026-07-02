@@ -1,6 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Grenis.AudioBooks.Core;
+using Grenis.AudioBooks.Server;
+using Grenis.AudioBooks.Server.Database;
+using Grenis.AudioBooks.Server.Database.Tables;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;

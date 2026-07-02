@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
+using Grenis.AudioBooks.Core;
 
-namespace Client;
+namespace Grenis.AudioBooks.Client;
 
 public class AudioPlayerService
 {

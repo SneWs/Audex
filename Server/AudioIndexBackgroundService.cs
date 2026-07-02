@@ -1,9 +1,6 @@
-using System.IO;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Server;
+
+namespace Grenis.AudioBooks.Server;
 
 public class AudioIndexBackgroundService : BackgroundService
 {

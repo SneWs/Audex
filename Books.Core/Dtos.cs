@@ -1,4 +1,4 @@
-namespace Books.Core;
+namespace Grenis.AudioBooks.Core;
 
 // Auth / account
 public record LoginRequest(string Email, string Password);

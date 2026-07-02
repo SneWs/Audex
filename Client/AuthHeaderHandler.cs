@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
 using Blazored.LocalStorage;
 
-namespace Client;
+namespace Grenis.AudioBooks.Client;
 
 public class AuthHeaderHandler : DelegatingHandler
 {
