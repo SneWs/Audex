@@ -76,7 +76,7 @@
             var res = await Http.PostAsJsonAsync("/api/register", new { Email = email, Password = password });
             if (res.IsSuccessStatusCode)
             {
-                var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
+                var data = await res.Content.ReadFromJsonAsync<AuthResponse>();
                 if (data?.Token is not null)
                 {
                     await AuthService.MarkUserAsAuthenticated(data.Token);

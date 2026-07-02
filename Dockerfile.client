@@ -2,9 +2,11 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Client/Client.csproj ./Client/
+COPY Books.Core/Books.Core.csproj ./Books.Core/
 RUN dotnet restore "Client/Client.csproj"
 
 COPY Client/ ./Client/
+COPY Books.Core/ ./Books.Core/
 RUN dotnet publish "Client/Client.csproj" -c Release -o /app/publish
 
 FROM nginx:alpine AS final

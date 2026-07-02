@@ -1,7 +1,27 @@
-using System.Collections.Generic;
+namespace Books.Core;
 
-namespace Client;
+// Auth / account
+public record LoginRequest(string Email, string Password);
+public record AuthResponse(string Token);
+public record AccountDto(int Id, string Email);
+public record ChangeEmailRequest(string NewEmail, string CurrentPassword);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+public record EmailChangeResponse(string Token, string Email);
 
+// Generic responses
+public record MessageResponse(string Message);
+public record FavoriteResponse(bool IsFavorite);
+public record RescanResponse(int Count);
+
+// Progress
+public class ProgressDto
+{
+    public int BookId { get; set; }
+    public int ChapterId { get; set; }
+    public int PositionSec { get; set; }
+}
+
+// Books / chapters / genres
 public class ChapterDto
 {
     public int Id { get; init; }
@@ -31,19 +51,13 @@ public class BookDto
     public bool IsStarted => LastPlayedAt is not null;
 }
 
+public class BookDetailDto : BookDto
+{
+    public List<ChapterDto> Chapters { get; init; } = new();
+}
+
 public class GenreDto
 {
     public string Name { get; init; } = default!;
     public int Count { get; init; }
-}
-
-public class AccountDto
-{
-    public int Id { get; init; }
-    public string Email { get; init; } = default!;
-}
-
-public class BookDetailDto : BookDto
-{
-    public List<ChapterDto> Chapters { get; init; } = new();
 }

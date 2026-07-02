@@ -143,10 +143,10 @@
                 new { NewEmail = _newEmail, CurrentPassword = _emailPassword });
             if (res.IsSuccessStatusCode)
             {
-                var data = await res.Content.ReadFromJsonAsync<LoginResponse>();
+                var data = await res.Content.ReadFromJsonAsync<AuthResponse>();
                 if (data?.Token is not null)
                     await AuthService.MarkUserAsAuthenticated(data.Token);
-                _account = new AccountDto { Id = _account?.Id ?? 0, Email = _newEmail };
+                _account = new AccountDto(_account?.Id ?? 0, _newEmail);
                 _emailPassword = string.Empty;
                 Snackbar.Add("Email updated.", Severity.Success);
             }
