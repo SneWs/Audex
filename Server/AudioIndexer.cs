@@ -42,10 +42,12 @@ public class AudioIndexer : IAudioIndexer
         foreach (var folder in bookFolders)
         {
             ct.ThrowIfCancellationRequested();
-            await IndexFolderAsync(folder, ct);
+            await IndexFolderAsync(folder, ct)
+                .ConfigureAwait(false);
         }
 
-        await PruneMissingBooksAsync(ct);
+        await PruneMissingBooksAsync(ct)
+            .ConfigureAwait(false);
     }
 
     public async Task IndexFolderAsync(string folderFullPath, CancellationToken ct)
@@ -56,11 +58,15 @@ public class AudioIndexer : IAudioIndexer
         if (files.Count == 0)
         {
             // Folder no longer holds audio -> drop the book if we had one.
-            var stale = await _db.Books.FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct);
+            var stale = await _db.Books.FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct)
+                .ConfigureAwait(false);
+
             if (stale != null)
             {
                 _db.Books.Remove(stale);
-                await _db.SaveChangesAsync(ct);
+                await _db.SaveChangesAsync(ct)
+                    .ConfigureAwait(false);
+
                 _logger.LogInformation("Removed book (no audio left): {Folder}", relFolder);
             }
             return;
@@ -86,16 +92,21 @@ public class AudioIndexer : IAudioIndexer
                 DurationSec: meta.DurationSec,
                 TrackNumber: meta.Track > 0 ? meta.Track : index));
 
-            if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author)) author = meta.Author!;
-            if (readBy is null && !string.IsNullOrWhiteSpace(meta.ReadBy)) readBy = meta.ReadBy;
-            if (album is null && !string.IsNullOrWhiteSpace(meta.Album)) album = meta.Album;
-            if (description is null && !string.IsNullOrWhiteSpace(meta.Description)) description = meta.Description;
-            if (meta.HasCover) hasCover = true;
+            if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author)) 
+                author = meta.Author!;
+            if (readBy == null && !string.IsNullOrWhiteSpace(meta.ReadBy)) 
+                readBy = meta.ReadBy;
+            if (album == null && !string.IsNullOrWhiteSpace(meta.Album)) 
+                album = meta.Album;
+            if (description == null && !string.IsNullOrWhiteSpace(meta.Description)) 
+                description = meta.Description;
+            if (meta.HasCover) 
+                hasCover = true;
+            
             foreach (var raw in meta.Genres)
             {
                 // A single tag field may pack several genres, e.g. "Literary Fiction, Classics".
-                foreach (var part in (raw ?? string.Empty).Split(new[] { ',', ';', '/', '|' },
-                             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                foreach (var part in raw.Split([',', ';', '/', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
                     if (!genreNames.Contains(part, StringComparer.OrdinalIgnoreCase))
                         genreNames.Add(part);
@@ -107,19 +118,24 @@ public class AudioIndexer : IAudioIndexer
 
         // Prefer the Album tag as the book name; fall back to the folder name.
         var folderName = new DirectoryInfo(folderFullPath).Name;
-        var title = string.IsNullOrWhiteSpace(album) ? folderName : album!;
+        var title = string.IsNullOrWhiteSpace(album) ? folderName : album;
+        
         // Avoid showing the same text as both title and description.
         if (!string.IsNullOrWhiteSpace(description) &&
             string.Equals(description, title, StringComparison.OrdinalIgnoreCase))
+        {
             description = null;
+        }
+        
         var totalDuration = scanned.Sum(c => c.DurationSec);
 
         var book = await _db.Books
             .Include(b => b.Chapters)
             .Include(b => b.Genres)
-            .FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct);
+            .FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct)
+            .ConfigureAwait(false);
 
-        if (book is null)
+        if (book == null)
         {
             book = new Book { FolderPath = relFolder, AddedAt = DateTime.UtcNow };
             _db.Books.Add(book);
@@ -167,9 +183,12 @@ public class AudioIndexer : IAudioIndexer
         book.HasCover = hasCover;
         book.DurationSec = totalDuration;
         book.ChapterCount = scanned.Count;
-        book.Genres = await ResolveGenresAsync(genreNames, ct);
+        book.Genres = await ResolveGenresAsync(genreNames, ct)
+            .ConfigureAwait(false);
 
-        await _db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct)
+            .ConfigureAwait(false);
+
         _logger.LogInformation("Indexed '{Title}' ({Count} chapter(s), {Dur}s, genres: {Genres})",
             title, scanned.Count, totalDuration,
             genreNames.Count > 0 ? string.Join(", ", genreNames) : "-");
@@ -183,13 +202,14 @@ public class AudioIndexer : IAudioIndexer
 
         var existing = await _db.Genres
             .Where(g => names.Contains(g.Name))
-            .ToListAsync(ct);
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
         foreach (var name in names)
         {
             var genre = existing.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase))
                         ?? _db.Genres.Local.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (genre is null)
+            if (genre == null)
             {
                 genre = new Genre { Name = name };
                 _db.Genres.Add(genre);
@@ -206,7 +226,12 @@ public class AudioIndexer : IAudioIndexer
         if (!Directory.Exists(newFullPath))
         {
             var fileFolder = Path.GetDirectoryName(newFullPath);
-            if (!string.IsNullOrEmpty(fileFolder)) await IndexFolderAsync(fileFolder, ct);
+            if (!string.IsNullOrEmpty(fileFolder))
+            {
+                await IndexFolderAsync(fileFolder, ct)
+                    .ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -220,12 +245,15 @@ public class AudioIndexer : IAudioIndexer
         var affected = await _db.Books
             .Include(b => b.Chapters)
             .Where(b => b.FolderPath == oldRel || b.FolderPath.StartsWith(oldPrefix))
-            .ToListAsync(ct);
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
         if (affected.Count == 0)
         {
             // Nothing tracked under the old path yet -> treat as a fresh scan.
-            await ScanTreeAsync(newFullPath, ct);
+            await ScanTreeAsync(newFullPath, ct)
+                .ConfigureAwait(false);
+
             return;
         }
 
@@ -236,8 +264,13 @@ public class AudioIndexer : IAudioIndexer
 
             // Drop any stale row already occupying the destination to avoid a unique clash.
             var dup = await _db.Books.FirstOrDefaultAsync(
-                b => b.FolderPath == newFolder && b.Id != book.Id, ct);
-            if (dup is not null) _db.Books.Remove(dup);
+                b => b.FolderPath == newFolder && b.Id != book.Id, ct)
+                .ConfigureAwait(false);
+
+            if (dup is not null)
+            {
+                _db.Books.Remove(dup);
+            }
 
             book.FolderPath = newFolder;
             // Only refresh the title from the folder name when it was folder-derived;
@@ -254,7 +287,9 @@ public class AudioIndexer : IAudioIndexer
             }
         }
 
-        await _db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct)
+            .ConfigureAwait(false);
+
         _logger.LogInformation("Renamed folder '{Old}' -> '{New}' ({Count} book(s) migrated).",
             oldRel, newRel, affected.Count);
     }
@@ -265,7 +300,12 @@ public class AudioIndexer : IAudioIndexer
         if (File.Exists(fullPath) || Directory.Exists(fullPath))
         {
             var folder = Directory.Exists(fullPath) ? fullPath : Path.GetDirectoryName(fullPath);
-            if (!string.IsNullOrEmpty(folder)) await IndexFolderAsync(folder, ct);
+            if (!string.IsNullOrEmpty(folder))
+            {
+                await IndexFolderAsync(folder, ct)
+                    .ConfigureAwait(false);
+            }
+
             return;
         }
 
@@ -275,11 +315,15 @@ public class AudioIndexer : IAudioIndexer
         // Remove any books whose folder was deleted (exact match or nested beneath it).
         var gone = await _db.Books
             .Where(b => b.FolderPath == rel || b.FolderPath.StartsWith(prefix))
-            .ToListAsync(ct);
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
         if (gone.Count > 0)
         {
             _db.Books.RemoveRange(gone);
-            await _db.SaveChangesAsync(ct);
+            await _db.SaveChangesAsync(ct)
+                .ConfigureAwait(false);
+
             _logger.LogInformation("Removed {Count} book(s) under deleted path '{Path}'.", gone.Count, rel);
             return;
         }
@@ -287,7 +331,10 @@ public class AudioIndexer : IAudioIndexer
         // Otherwise a file was deleted from within a book folder -> reindex the parent.
         var parent = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
-            await IndexFolderAsync(parent, ct);
+        {
+            await IndexFolderAsync(parent, ct)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task ScanTreeAsync(string rootFullPath, CancellationToken ct)
@@ -297,13 +344,16 @@ public class AudioIndexer : IAudioIndexer
                      .Where(HasAudioFiles))
         {
             ct.ThrowIfCancellationRequested();
-            await IndexFolderAsync(folder, ct);
+            await IndexFolderAsync(folder, ct)
+                .ConfigureAwait(false);
         }
     }
 
     private async Task PruneMissingBooksAsync(CancellationToken ct)
     {
-        var books = await _db.Books.ToListAsync(ct);
+        var books = await _db.Books.ToListAsync(ct)
+            .ConfigureAwait(false);
+
         var removed = false;
         foreach (var b in books)
         {
@@ -314,14 +364,21 @@ public class AudioIndexer : IAudioIndexer
                 removed = true;
             }
         }
-        if (removed) await _db.SaveChangesAsync(ct);
+
+        if (removed)
+        {
+            await _db.SaveChangesAsync(ct)
+                .ConfigureAwait(false);
+        }
     }
 
     private static bool HasAudioFiles(string folder) => GetAudioFiles(folder).Count > 0;
 
     private static List<string> GetAudioFiles(string folder)
     {
-        if (!Directory.Exists(folder)) return new List<string>();
+        if (!Directory.Exists(folder))
+            return new List<string>();
+
         return Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly)
             .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -339,9 +396,9 @@ public class AudioIndexer : IAudioIndexer
             var tag = tf.Tag;
             var pic = tag.Pictures?.FirstOrDefault();
 
-            if (_logger.IsEnabled(LogLevel.Information))
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                _logger.LogInformation(
+                _logger.LogDebug(
                     "ID tags for {File} [{TagTypes}]:\n" +
                     "  Title        : {Title}\n" +
                     "  Performers   : {Performers}\n" +
@@ -397,7 +454,8 @@ public class AudioIndexer : IAudioIndexer
     {
         var picked = values?.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToArray();
         return picked is { Length: > 0 } ? string.Join(", ", picked) : null;
-    }    private static string Show(string[]? values) =>
+    }
+    private static string Show(string[]? values) =>
         values is { Length: > 0 } ? string.Join(", ", values) : "-";
 
     private record ScannedChapter(string Title, string FilePath, int DurationSec, int TrackNumber);
