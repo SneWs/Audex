@@ -1,5 +1,8 @@
 @inherits LayoutComponentBase
+@using System.Net.Http.Json
+@using Grenis.AudioBooks.Core
 @inject TokenAuthenticationStateProvider AuthProvider
+@inject HttpClient Http
 @inject NavigationManager Nav
 
 <MudThemeProvider @bind-IsDarkMode="_isDarkMode" />
@@ -15,7 +18,7 @@
         <MudSpacer />
         <MudTooltip Text="Toggle light/dark mode">
             <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
-                           Color="Color.Inherit" OnClick="@(() => _isDarkMode = !_isDarkMode)" />
+                           Color="Color.Inherit" OnClick="ToggleThemeAsync" />
         </MudTooltip>
         <AuthorizeView>
             <Authorized>
@@ -66,11 +69,85 @@
     bool _drawerOpen = true;
     bool _isDarkMode;
 
+    protected override void OnInitialized()
+    {
+        AuthProvider.AuthenticationStateChanged += HandleAuthenticationStateChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await LoadThemePreferenceAsync();
+    }
+
+    async void HandleAuthenticationStateChanged(Task<AuthenticationState> authTask)
+    {
+        var authState = await authTask;
+        if (authState.User.Identity?.IsAuthenticated == true)
+            await LoadThemePreferenceAsync();
+        else
+            _isDarkMode = false;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
     void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    async Task ToggleThemeAsync()
+    {
+        _isDarkMode = !_isDarkMode;
+        StateHasChanged();
+
+        try
+        {
+            var res = await Http.PutAsJsonAsync("/api/account/preferences/theme", new ThemePreferenceRequest
+            {
+                IsDarkMode = _isDarkMode
+            });
+            if (!res.IsSuccessStatusCode)
+                await RestoreServerPreferenceAsync();
+        }
+        catch
+        {
+            await RestoreServerPreferenceAsync();
+        }
+    }
+
+    async Task LoadThemePreferenceAsync()
+    {
+        try
+        {
+            var account = await Http.GetFromJsonAsync<AccountDto>("/api/account");
+            if (account is not null)
+                _isDarkMode = account.PrefersDarkMode;
+        }
+        catch
+        {
+            // Anonymous users or network failures keep the current/default theme.
+        }
+    }
+
+    async Task RestoreServerPreferenceAsync()
+    {
+        try
+        {
+            await LoadThemePreferenceAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch
+        {
+            // Ignore secondary failures when attempting to restore server state.
+        }
+    }
 
     async Task LogoutAsync()
     {
         await AuthProvider.MarkUserAsLoggedOut();
         Nav.NavigateTo("/login");
+    }
+
+    public void Dispose()
+    {
+        AuthProvider.AuthenticationStateChanged -= HandleAuthenticationStateChanged;
     }
 }

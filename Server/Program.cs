@@ -378,10 +378,28 @@ account.MapGet("/api/account", async (AppDbContext db, ClaimsPrincipal principal
 {
     var userId = GetUserId(principal);
     var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
-    return user is null ? Results.NotFound() : Results.Ok(new AccountDto(user.Id, user.Email));
+    return user is null
+        ? Results.NotFound()
+        : Results.Ok(new AccountDto(user.Id, user.Email, user.PrefersDarkMode));
 })
 .RequireAuthorization()
 .WithSummary("Get the current account's details")
+.Produces<AccountDto>()
+.Produces(StatusCodes.Status404NotFound);
+
+account.MapPut("/api/account/preferences/theme", async (ThemePreferenceRequest req, AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var userId = GetUserId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null) return Results.NotFound();
+
+    user.PrefersDarkMode = req.IsDarkMode;
+    await db.SaveChangesAsync();
+    return Results.Ok(new AccountDto(user.Id, user.Email, user.PrefersDarkMode));
+})
+.RequireAuthorization()
+.WithSummary("Save the current account's theme preference")
+.Accepts<ThemePreferenceRequest>("application/json")
 .Produces<AccountDto>()
 .Produces(StatusCodes.Status404NotFound);
 

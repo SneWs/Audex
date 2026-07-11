@@ -147,7 +147,7 @@
                 var data = await res.Content.ReadFromJsonAsync<AuthResponse>();
                 if (data?.Token is not null)
                     await AuthService.MarkUserAsAuthenticated(data.Token);
-                _account = new AccountDto(_account?.Id ?? 0, _newEmail);
+                _account = new AccountDto(_account?.Id ?? 0, _newEmail, _account?.PrefersDarkMode ?? false);
                 _emailPassword = string.Empty;
                 Snackbar.Add("Email updated.", Severity.Success);
             }
