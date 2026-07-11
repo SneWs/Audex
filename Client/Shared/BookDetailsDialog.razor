@@ -1,0 +1,198 @@
+@using System.Net.Http.Json
+@using Grenis.AudioBooks.Core
+@inject HttpClient Http
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudStack Spacing="2">
+                <MudSkeleton Width="50%" Height="30px" />
+                <MudSkeleton Width="80%" />
+                <MudSkeleton Width="70%" />
+                <MudSkeleton Width="90%" Height="120px" />
+            </MudStack>
+        }
+        else if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+        }
+        else if (_book is not null)
+        {
+            <MudStack Spacing="2">
+                <div class="d-flex" style="gap:16px;">
+                    @if (_book.HasCover)
+                    {
+                        <MudImage Src="@($"/api/books/{_book.Id}/cover")" Width="110" Height="110"
+                                  ObjectFit="ObjectFit.Cover" Class="rounded" Alt="@_book.Title" />
+                    }
+                    else
+                    {
+                        <MudAvatar Color="Color.Primary" Rounded="true" Style="width:110px;height:110px;">
+                            <MudIcon Icon="@Icons.Material.Filled.MenuBook" Size="Size.Large" />
+                        </MudAvatar>
+                    }
+                    <div style="min-width:0;" class="flex-grow-1">
+                        <MudText Typo="Typo.h5">@_book.Title</MudText>
+                        <MudText Typo="Typo.subtitle1" Class="mud-text-secondary">@_book.Author</MudText>
+                        @if (!string.IsNullOrWhiteSpace(_book.ReadBy))
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">Read by @_book.ReadBy</MudText>
+                        }
+                        <div class="d-flex flex-wrap mt-2" style="gap:6px;">
+                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Schedule" Variant="Variant.Text">
+                                @FormatDuration(_book.DurationSec)
+                            </MudChip>
+                            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.MenuBook" Variant="Variant.Text">
+                                @_book.ChapterCount chapter@(_book.ChapterCount == 1 ? "" : "s")
+                            </MudChip>
+                            <MudChip T="string" Size="Size.Small" Icon="@(_book.IsCompleted ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.History)"
+                                     Color="@(_book.IsCompleted ? Color.Success : Color.Default)" Variant="Variant.Text">
+                                @(_book.IsCompleted ? "Finished" : (_book.IsStarted ? "In progress" : "Not started"))
+                            </MudChip>
+                            @if (_book.IsFavorite)
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Favorite"
+                                         Color="Color.Error" Variant="Variant.Text">
+                                    Favorite
+                                </MudChip>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                @if (_book.DurationSec > 0)
+                {
+                    <MudProgressLinear Color="Color.Primary" Rounded="true" Size="Size.Small"
+                                       Value="@ProgressPercent(_book)" />
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        Progress: @FormatDuration(_book.ProgressSec) of @FormatDuration(_book.DurationSec) (@Math.Round(ProgressPercent(_book), 1)%)
+                    </MudText>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(_book.Description))
+                {
+                    <MudPaper Outlined="true" Class="pa-3">
+                        <MudText Typo="Typo.subtitle2" Class="mb-1">Description</MudText>
+                        <MudText Typo="Typo.body2">@_book.Description</MudText>
+                    </MudPaper>
+                }
+
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Metadata</MudText>
+                    <MudSimpleTable Dense="true" Hover="false">
+                        <tbody>
+                            <tr><td>Book Id</td><td>@_book.Id</td></tr>
+                            <tr><td>Added</td><td>@FormatDate(_book.AddedAt)</td></tr>
+                            <tr><td>Last listened</td><td>@FormatNullableDate(_book.LastPlayedAt)</td></tr>
+                            <tr><td>Resume chapter id</td><td>@(_book.ResumeChapterId?.ToString() ?? "N/A")</td></tr>
+                            <tr><td>Resume position</td><td>@FormatDuration(_book.ResumePositionSec)</td></tr>
+                            <tr><td>Has cover</td><td>@(_book.HasCover ? "Yes" : "No")</td></tr>
+                            <tr><td>Chapter count</td><td>@_book.ChapterCount</td></tr>
+                            <tr><td>Total duration</td><td>@FormatDuration(_book.DurationSec)</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Genres</MudText>
+                    @if (_book.Genres.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">No genres available.</MudText>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap" style="gap:6px;">
+                            @foreach (var genre in _book.Genres)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                         Color="Color.Primary" Icon="@Icons.Material.Filled.Label">@genre</MudChip>
+                            }
+                        </div>
+                    }
+                </MudPaper>
+
+                <MudExpansionPanels>
+                    <MudExpansionPanel Text="Chapter List">
+                        @if (_book.Chapters.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">No chapter data available.</MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Title</th>
+                                        <th>Duration</th>
+                                        <th>Chapter Id</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var ch in _book.Chapters)
+                                    {
+                                        <tr>
+                                            <td>@ch.TrackNumber</td>
+                                            <td>@ch.Title</td>
+                                            <td>@FormatDuration(ch.DurationSec)</td>
+                                            <td>@ch.Id</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Default" Variant="Variant.Text" OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public int BookId { get; set; }
+
+    BookDetailDto? _book;
+    bool _loading = true;
+    string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _book = await Http.GetFromJsonAsync<BookDetailDto>($"/api/books/{BookId}");
+            if (_book is null)
+                _error = "Book details are unavailable.";
+        }
+        catch
+        {
+            _error = "Unable to load book details right now.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    void Close() => MudDialog.Close();
+
+    static double ProgressPercent(BookDto b) =>
+        b.DurationSec <= 0 ? 0 : Math.Clamp(b.ProgressSec * 100.0 / b.DurationSec, 0, 100);
+
+    static string FormatDuration(int seconds)
+    {
+        if (seconds <= 0) return "0s";
+        var t = TimeSpan.FromSeconds(seconds);
+        return t.TotalHours >= 1
+            ? $"{(int)t.TotalHours}h {t.Minutes}m {t.Seconds}s"
+            : $"{t.Minutes}m {t.Seconds}s";
+    }
+
+    static string FormatDate(DateTime dt) => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+
+    static string FormatNullableDate(DateTime? dt) => dt is null ? "Never" : FormatDate(dt.Value);
+}
