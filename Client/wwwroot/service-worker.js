@@ -1,5 +1,5 @@
 // Audex Service Worker – cache-first for static assets, network-first for API
-const CACHE_NAME = 'audex-cache-v1';
+const CACHE_NAME = 'audex-cache-v2';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
