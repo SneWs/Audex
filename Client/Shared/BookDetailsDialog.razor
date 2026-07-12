@@ -74,7 +74,7 @@
                 {
                     <MudPaper Outlined="true" Class="pa-3">
                         <MudText Typo="Typo.subtitle2" Class="mb-1">Description</MudText>
-                        <MudText Typo="Typo.body2">@_book.Description</MudText>
+                        <MudText Typo="Typo.body2">@(HtmlSanitizer.SanitizeToMarkup(_book.Description))</MudText>
                     </MudPaper>
                 }
 
