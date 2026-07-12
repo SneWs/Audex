@@ -38,7 +38,7 @@
 
         @* ── Row 2: Audio slider (full width) ── *@
         <div class="mt-1">
-            <audio id="globalPlayer" src="@Src"
+            <audio id="globalPlayer"
                    style="width:100%;height:48px;"
                    controls></audio>
         </div>
@@ -98,7 +98,7 @@
         {
             _loadedChapterId = Player.CurrentChapter.Id;
             var seek = Player.ConsumePendingSeek();
-            await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", seek);
+            await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", Src, seek);
             await JS.InvokeVoidAsync("updateMediaSession",
                 Player.Current?.Title ?? "",
                 Player.CurrentChapter.Title,
