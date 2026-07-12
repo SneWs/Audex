@@ -38,9 +38,9 @@
 
         @* ── Row 2: Audio slider (full width) ── *@
         <div class="mt-1">
-            <audio id="globalPlayer" src="@Src" controls autoplay
+            <audio id="globalPlayer" src="@Src"
                    style="width:100%;height:48px;"
-                   @onpause="OnPauseAsync" @onended="OnEndedAsync" @ontimeupdate="OnTimeUpdateAsync"></audio>
+                   controls></audio>
         </div>
 
         @* ── Row 3: Playback controls ── *@
@@ -62,7 +62,6 @@
 
 @code {
     int? _loadedChapterId;
-    DateTime _lastSaved = DateTime.MinValue;
     DotNetObjectReference<GlobalAudioPlayer>? _selfRef;
 
     string Src => Player.CurrentChapter is null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
@@ -77,7 +76,7 @@
 
     async void OnClosed()
     {
-        await JS.InvokeVoidAsync("clearMediaSession");
+        await JS.InvokeVoidAsync("disposeAudioPlayer");
         await InvokeAsync(StateHasChanged);
     }
 
@@ -86,7 +85,7 @@
         if (firstRender)
         {
             _selfRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("setMediaSessionHandlers", _selfRef);
+            await JS.InvokeVoidAsync("initAudioPlayer", _selfRef);
         }
 
         if (Player.CurrentChapter is null)
@@ -100,13 +99,14 @@
             _loadedChapterId = Player.CurrentChapter.Id;
             var seek = Player.ConsumePendingSeek();
             await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", seek);
-            await JS.InvokeVoidAsync("setMediaSessionMetadata",
+            await JS.InvokeVoidAsync("updateMediaSession",
                 Player.Current?.Title ?? "",
                 Player.CurrentChapter.Title,
                 Player.Current?.Title ?? "");
         }
     }
 
+    // Called from JS media session handlers
     [JSInvokable]
     public async Task MediaNext()
     {
@@ -121,6 +121,20 @@
         Player.Previous();
     }
 
+    // Called from JS audio element event handlers
+    [JSInvokable]
+    public async Task OnJsPause() => await SaveProgressAsync();
+
+    [JSInvokable]
+    public async Task OnJsEnded()
+    {
+        await SaveProgressAsync();
+        Player.Next();
+    }
+
+    [JSInvokable]
+    public async Task OnJsTimeUpdate() => await SaveProgressAsync();
+
     async Task Next()
     {
         await SaveProgressAsync();
@@ -133,22 +147,6 @@
         Player.Previous();
     }
 
-    async Task OnEndedAsync()
-    {
-        // Persist that this chapter finished, then auto-advance.
-        await SaveProgressAsync();
-        Player.Next();
-    }
-
-    async Task OnPauseAsync() => await SaveProgressAsync();
-
-    async Task OnTimeUpdateAsync()
-    {
-        // Throttle periodic saves so progress survives navigation without pausing.
-        if ((DateTime.UtcNow - _lastSaved).TotalSeconds < 10) return;
-        await SaveProgressAsync();
-    }
-
     async Task SaveProgressAsync()
     {
         if (Player.CurrentChapter is null || Player.Current is null) return;
@@ -157,7 +155,6 @@
         if (userId <= 0) return;
 
         var current = await JS.InvokeAsync<double>("getCurrentTime", "globalPlayer");
-        _lastSaved = DateTime.UtcNow;
 
         await Http.PostAsJsonAsync($"/api/users/{userId}/progress",
             new { BookId = Player.Current.Id, ChapterId = Player.CurrentChapter.Id, PositionSec = (int)current });

@@ -1,45 +1,64 @@
 window.getDuration = function (id) {
-    const el = document.getElementById(id);
-    const d = el ? el.duration : 0;
+    var el = document.getElementById(id);
+    var d = el ? el.duration : 0;
     return isFinite(d) ? d : 0;
 };
 
 window.getCurrentTime = function (id) {
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     return el ? el.currentTime : 0;
 };
 
-window.loadAndPlay = function (id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.load();
-    const p = el.play();
-    if (p && typeof p.catch === "function") {
-        p.catch(function () { /* autoplay may require a user gesture; ignore */ });
-    }
+// ── Audio player management ────────────────────────────────────────
+
+var _audioRef = null;       // current <audio> element reference
+var _dotNetRef = null;      // Blazor DotNetObjectReference
+var _lastSavedTime = 0;     // timestamp of last progress save
+
+window.initAudioPlayer = function (dotNetRef) {
+    _dotNetRef = dotNetRef;
+    _setupMediaSessionHandlers();
 };
 
 window.loadPlaySeek = function (id, seconds) {
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     if (!el) return;
+    _audioRef = el;
+
+    // Wire native DOM events directly (not through Blazor)
+    el.onpause = function () {
+        if (_dotNetRef) _dotNetRef.invokeMethodAsync('OnJsPause');
+    };
+    el.onended = function () {
+        if (_dotNetRef) _dotNetRef.invokeMethodAsync('OnJsEnded');
+    };
+    el.ontimeupdate = function () {
+        var now = Date.now();
+        if (now - _lastSavedTime > 10000) {
+            _lastSavedTime = now;
+            if (_dotNetRef) _dotNetRef.invokeMethodAsync('OnJsTimeUpdate');
+        }
+    };
+
     if (seconds > 0) {
-        const doSeek = function () {
+        var doSeek = function () {
             try { el.currentTime = seconds; } catch (e) { /* ignore */ }
-            el.removeEventListener("loadedmetadata", doSeek);
+            el.removeEventListener('loadedmetadata', doSeek);
         };
-        el.addEventListener("loadedmetadata", doSeek);
+        el.addEventListener('loadedmetadata', doSeek);
     }
+
     el.load();
-    const p = el.play();
-    if (p && typeof p.catch === "function") {
-        p.catch(function () { /* autoplay may require a user gesture; ignore */ });
-    }
+    el.play().then(function () {
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+        }
+    }).catch(function () { /* autoplay blocked; user gesture required */ });
 };
 
-// ── Media Session API ──────────────────────────────────────────────
-
-window.setMediaSessionMetadata = function (title, chapter, bookTitle) {
+window.updateMediaSession = function (title, chapter, bookTitle) {
     if (!('mediaSession' in navigator)) return;
+
     navigator.mediaSession.metadata = new MediaMetadata({
         title: chapter || title,
         artist: bookTitle || '',
@@ -51,56 +70,64 @@ window.setMediaSessionMetadata = function (title, chapter, bookTitle) {
     });
 };
 
-window.setMediaSessionHandlers = function (dotNetRef) {
-    if (!('mediaSession' in navigator)) return;
-
-    function getPlayer() { return document.getElementById('globalPlayer'); }
-
-    // Keep playbackState in sync — use event delegation since the element may not exist yet
-    document.addEventListener('play', function (e) {
-        if (e.target.id === 'globalPlayer') navigator.mediaSession.playbackState = 'playing';
-    }, true);
-    document.addEventListener('pause', function (e) {
-        if (e.target.id === 'globalPlayer') navigator.mediaSession.playbackState = 'paused';
-    }, true);
-
-    navigator.mediaSession.setActionHandler('play', function () {
-        var el = getPlayer();
-        if (el) {
-            el.play();
-            navigator.mediaSession.playbackState = 'playing';
-        }
-    });
-    navigator.mediaSession.setActionHandler('pause', function () {
-        var el = getPlayer();
-        if (el) {
-            el.pause();
-            navigator.mediaSession.playbackState = 'paused';
-        }
-    });
-    navigator.mediaSession.setActionHandler('previoustrack', function () {
-        dotNetRef.invokeMethodAsync('MediaPrevious');
-    });
-    navigator.mediaSession.setActionHandler('nexttrack', function () {
-        dotNetRef.invokeMethodAsync('MediaNext');
-    });
-    navigator.mediaSession.setActionHandler('seekbackward', function (details) {
-        var el = getPlayer();
-        if (el) el.currentTime = Math.max(el.currentTime - (details.seekOffset || 10), 0);
-    });
-    navigator.mediaSession.setActionHandler('seekforward', function (details) {
-        var el = getPlayer();
-        if (el) el.currentTime = Math.min(el.currentTime + (details.seekOffset || 10), el.duration || 0);
-    });
-};
-
 window.clearMediaSession = function () {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.metadata = null;
-    navigator.mediaSession.setActionHandler('play', null);
-    navigator.mediaSession.setActionHandler('pause', null);
-    navigator.mediaSession.setActionHandler('previoustrack', null);
-    navigator.mediaSession.setActionHandler('nexttrack', null);
-    navigator.mediaSession.setActionHandler('seekbackward', null);
-    navigator.mediaSession.setActionHandler('seekforward', null);
+    navigator.mediaSession.playbackState = 'none';
 };
+
+window.disposeAudioPlayer = function () {
+    if (_audioRef) {
+        _audioRef.onpause = null;
+        _audioRef.onended = null;
+        _audioRef.ontimeupdate = null;
+        _audioRef = null;
+    }
+    _dotNetRef = null;
+    window.clearMediaSession();
+};
+
+// ── Media Session handlers (registered once) ───────────────────────
+
+function _setupMediaSessionHandlers() {
+    if (!('mediaSession' in navigator)) return;
+
+    navigator.mediaSession.setActionHandler('play', function () {
+        if (_audioRef) {
+            _audioRef.play();
+        }
+    });
+
+    navigator.mediaSession.setActionHandler('pause', function () {
+        if (_audioRef) {
+            _audioRef.pause();
+        }
+    });
+
+    navigator.mediaSession.setActionHandler('stop', function () {
+        if (_audioRef) {
+            _audioRef.pause();
+            _audioRef.currentTime = 0;
+        }
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', function () {
+        if (_dotNetRef) _dotNetRef.invokeMethodAsync('MediaPrevious');
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', function () {
+        if (_dotNetRef) _dotNetRef.invokeMethodAsync('MediaNext');
+    });
+
+    navigator.mediaSession.setActionHandler('seekbackward', function (details) {
+        if (_audioRef) _audioRef.currentTime = Math.max(_audioRef.currentTime - (details.seekOffset || 10), 0);
+    });
+
+    navigator.mediaSession.setActionHandler('seekforward', function (details) {
+        if (_audioRef) _audioRef.currentTime = Math.min(_audioRef.currentTime + (details.seekOffset || 10), _audioRef.duration || 0);
+    });
+
+    navigator.mediaSession.setActionHandler('seekto', function (details) {
+        if (_audioRef) _audioRef.currentTime = details.seekTime;
+    });
+}
