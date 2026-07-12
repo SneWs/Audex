@@ -63,15 +63,32 @@
 @code {
     int? _loadedChapterId;
     DateTime _lastSaved = DateTime.MinValue;
+    DotNetObjectReference<GlobalAudioPlayer>? _selfRef;
 
     string Src => Player.CurrentChapter is null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
 
-    protected override void OnInitialized() => Player.Changed += OnChanged;
+    protected override void OnInitialized()
+    {
+        Player.Changed += OnChanged;
+        Player.Closed += OnClosed;
+    }
 
     void OnChanged() => InvokeAsync(StateHasChanged);
 
+    async void OnClosed()
+    {
+        await JS.InvokeVoidAsync("clearMediaSession");
+        await InvokeAsync(StateHasChanged);
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("setMediaSessionHandlers", _selfRef);
+        }
+
         if (Player.CurrentChapter is null)
         {
             _loadedChapterId = null;
@@ -83,7 +100,25 @@
             _loadedChapterId = Player.CurrentChapter.Id;
             var seek = Player.ConsumePendingSeek();
             await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", seek);
+            await JS.InvokeVoidAsync("setMediaSessionMetadata",
+                Player.Current?.Title ?? "",
+                Player.CurrentChapter.Title,
+                Player.Current?.Title ?? "");
         }
+    }
+
+    [JSInvokable]
+    public async Task MediaNext()
+    {
+        await SaveProgressAsync();
+        Player.Next();
+    }
+
+    [JSInvokable]
+    public async Task MediaPrevious()
+    {
+        await SaveProgressAsync();
+        Player.Previous();
     }
 
     async Task Next()
@@ -134,5 +169,10 @@
         return int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : 0;
     }
 
-    public void Dispose() => Player.Changed -= OnChanged;
+    public void Dispose()
+    {
+        Player.Changed -= OnChanged;
+        Player.Closed -= OnClosed;
+        _selfRef?.Dispose();
+    }
 }

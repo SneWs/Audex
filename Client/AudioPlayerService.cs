@@ -24,6 +24,7 @@ public class AudioPlayerService
     public int PendingSeekSec { get; private set; }
 
     public event Action? Changed;
+    public event Action? Closed;
 
     public async Task PlayAsync(int bookId)
     {
@@ -78,6 +79,7 @@ public class AudioPlayerService
     {
         Current = null;
         CurrentChapterIndex = 0;
+        Closed?.Invoke();
         Changed?.Invoke();
     }
 }

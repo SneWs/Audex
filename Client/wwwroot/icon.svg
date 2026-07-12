@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#7c4dff"/>
+  <g transform="translate(256,240)" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round">
+    <!-- Headphone band -->
+    <path d="M-120,20 C-120,-100 120,-100 120,20"/>
+    <!-- Left ear cup -->
+    <rect x="-140" y="10" width="50" height="80" rx="16" fill="#fff" stroke="none"/>
+    <!-- Right ear cup -->
+    <rect x="90" y="10" width="50" height="80" rx="16" fill="#fff" stroke="none"/>
+  </g>
+  <!-- Text -->
+  <text x="256" y="400" text-anchor="middle" font-family="Roboto,Arial,sans-serif" font-weight="700" font-size="96" fill="#fff">Audex</text>
+</svg>
