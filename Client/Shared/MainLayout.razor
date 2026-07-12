@@ -9,7 +9,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-<MudThemeProvider @bind-IsDarkMode="_isDarkMode" />
+<MudThemeProvider @bind-IsDarkMode="_isDarkMode" Theme="_theme" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -62,7 +62,7 @@
     </MudDrawer>
 
     <MudMainContent>
-        <MudContainer MaxWidth="MaxWidth.Large" Class="my-6" Style="padding-bottom:160px;">
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-6" Style="padding-bottom:260px;">
             @Body
         </MudContainer>
     </MudMainContent>
@@ -73,6 +73,43 @@
 @code {
     bool _drawerOpen = true;
     bool _isDarkMode;
+
+    readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#7c4dff",
+            Secondary = "#9c27b0",
+            AppbarBackground = "#7c4dff",
+            AppbarText = "#ffffff",
+            Background = "#f8f5ff",
+            Surface = "#ffffff",
+            DrawerBackground = "#f0eaff",
+            DrawerText = "#2b2b2b",
+            TextPrimary = "#2b2b2b",
+            TextSecondary = "#5f5f7a"
+        },
+        PaletteDark = new PaletteDark
+        {
+            Primary = "#7c4dff",
+            Secondary = "#c77dff",
+            AppbarBackground = "#1a1832",
+            AppbarText = "#fffffe",
+            Background = "#0f0e17",
+            Surface = "#1a1832",
+            DrawerBackground = "#1a1832",
+            DrawerText = "#e0dcf7",
+            TextPrimary = "#fffffe",
+            TextSecondary = "#a89fcc"
+        },
+        Typography = new Typography
+        {
+            Default = new DefaultTypography
+            {
+                FontFamily = ["Roboto", "Helvetica", "Arial", "sans-serif"]
+            }
+        }
+    };
 
     protected override void OnInitialized()
     {
