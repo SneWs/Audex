@@ -86,7 +86,21 @@ else
                                 <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.CheckCircle"
                                          Color="Color.Success" Variant="Variant.Text">Finished</MudChip>
                             }
+                            @if (!string.IsNullOrWhiteSpace(b.Language))
+                            {
+                                <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Language"
+                                         Color="Color.Default" Variant="Variant.Text">@b.Language.ToUpperInvariant()</MudChip>
+                            }
                         </div>
+                        @if (b.Rating.HasValue)
+                        {
+                            <div class="d-flex align-center mt-1" style="gap:4px;">
+                                <MudRating ReadOnly="true" SelectedValue="@((int)Math.Round(b.Rating.Value))" Size="Size.Small" />
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    @b.Rating.Value.ToString("0.0")@(b.RatingCount.HasValue ? $" ({b.RatingCount.Value:N0})" : "")
+                                </MudText>
+                            </div>
+                        }
                         @if (b.Genres.Count > 0)
                         {
                             <div class="d-flex flex-wrap mt-1" style="gap:4px;">

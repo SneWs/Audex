@@ -63,6 +63,11 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+builder.Services.AddHttpClient<BookMetadataLookup>(client =>
+{
+    client.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddScoped<IAudioIndexer, AudioIndexer>();
 builder.Services.AddHostedService<AudioIndexBackgroundService>();
 
@@ -178,6 +183,7 @@ books.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
         {
             Id = b.Id,
             Title = b.Title,
+            Subtitle = b.Subtitle,
             Author = b.Author,
             Year = b.Year,
             ReadBy = b.ReadBy,
@@ -185,6 +191,15 @@ books.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
             ChapterCount = b.ChapterCount,
             HasCover = b.HasCover,
             Description = b.Description,
+            Publisher = b.Publisher,
+            Language = b.Language,
+            Isbn10 = b.Isbn10,
+            Isbn13 = b.Isbn13,
+            PageCount = b.PageCount,
+            Rating = b.Rating,
+            RatingCount = b.RatingCount,
+            GoogleBooksUrl = b.GoogleBooksUrl,
+            OpenLibraryUrl = b.OpenLibraryUrl,
             AddedAt = b.AddedAt,
             ProgressSec = progressSec,
             IsCompleted = completed,
@@ -240,6 +255,7 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
     {
         Id = b.Id,
         Title = b.Title,
+        Subtitle = b.Subtitle,
         Author = b.Author,
         Year = b.Year,
         ReadBy = b.ReadBy,
@@ -247,6 +263,15 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
         ChapterCount = b.ChapterCount,
         HasCover = b.HasCover,
         Description = b.Description,
+        Publisher = b.Publisher,
+        Language = b.Language,
+        Isbn10 = b.Isbn10,
+        Isbn13 = b.Isbn13,
+        PageCount = b.PageCount,
+        Rating = b.Rating,
+        RatingCount = b.RatingCount,
+        GoogleBooksUrl = b.GoogleBooksUrl,
+        OpenLibraryUrl = b.OpenLibraryUrl,
         AddedAt = b.AddedAt,
         ProgressSec = progressSec,
         IsCompleted = completed,
@@ -271,39 +296,82 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
 .Produces<BookDetailDto>()
 .Produces(StatusCodes.Status404NotFound);
 
-books.MapPost("/api/books/rescan", async (IAudioIndexer indexer, AppDbContext db, CancellationToken ct) =>
+books.MapPost("/api/books/rescan", (IAudioIndexer indexer, IServiceProvider sp) =>
 {
-    await indexer.InitialScanAsync(ct);
-    var count = await db.Books.CountAsync(ct);
-    return Results.Ok(new RescanResponse(count));
+    // Run the scan in the background so the HTTP request doesn't time out.
+    _ = Task.Run(async () =>
+    {
+        using var scope = sp.CreateScope();
+        var bgIndexer = scope.ServiceProvider.GetRequiredService<IAudioIndexer>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        try
+        {
+            await bgIndexer.InitialScanAsync();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var count = await db.Books.CountAsync();
+            logger.LogInformation("Background rescan completed. {Count} book(s) in library.", count);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Background rescan failed.");
+        }
+    });
+
+    return Results.Ok(new RescanResponse(-1) { Message = "Rescan started in background." });
 })
 .RequireAuthorization()
 .WithSummary("Trigger a full re-scan of the library (progress is preserved)")
 .Produces<RescanResponse>();
 
-books.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
+books.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt, IHttpClientFactory httpFactory) =>
 {
+    var book = await db.Books.FindAsync(id);
+    if (book is null) return Results.NotFound();
+
+    // Try embedded cover from audio file tags first.
     var chapter = await db.Chapters
         .Where(c => c.BookId == id)
         .OrderBy(c => c.TrackNumber)
         .FirstOrDefaultAsync();
-    if (chapter is null) return Results.NotFound();
 
-    var path = Path.Combine(opt.Value.LibraryPath, chapter.FilePath);
-    if (!File.Exists(path)) return Results.NotFound();
+    if (chapter is not null)
+    {
+        var path = Path.Combine(opt.Value.LibraryPath, chapter.FilePath);
+        if (File.Exists(path))
+        {
+            try
+            {
+                using var tf = TagLib.File.Create(path);
+                var pic = tf.Tag.Pictures?.FirstOrDefault();
+                if (pic is not null && pic.Data.Count > 0)
+                {
+                    var mime = string.IsNullOrEmpty(pic.MimeType) ? "image/jpeg" : pic.MimeType;
+                    return Results.File(pic.Data.Data, mime);
+                }
+            }
+            catch { /* fall through to external cover */ }
+        }
+    }
 
-    try
+    // Fall back to externally fetched cover URL.
+    if (!string.IsNullOrWhiteSpace(book.CoverUrl))
     {
-        using var tf = TagLib.File.Create(path);
-        var pic = tf.Tag.Pictures?.FirstOrDefault();
-        if (pic is null || pic.Data.Count == 0) return Results.NotFound();
-        var mime = string.IsNullOrEmpty(pic.MimeType) ? "image/jpeg" : pic.MimeType;
-        return Results.File(pic.Data.Data, mime);
+        try
+        {
+            var http = httpFactory.CreateClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0");
+            var response = await http.GetAsync(book.CoverUrl);
+            if (response.IsSuccessStatusCode)
+            {
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                return Results.File(bytes, contentType);
+            }
+        }
+        catch { /* no external cover available */ }
     }
-    catch
-    {
-        return Results.NotFound();
-    }
+
+    return Results.NotFound();
 })
 .WithSummary("Get the cover image for a book (extracted from its audio tags)")
 .Produces(StatusCodes.Status200OK, contentType: "image/jpeg")

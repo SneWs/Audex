@@ -39,6 +39,19 @@
                         {
                             <MudText Typo="Typo.body2" Class="mud-text-secondary">Read by @_book.ReadBy</MudText>
                         }
+                        @if (!string.IsNullOrWhiteSpace(_book.Publisher))
+                        {
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@_book.Publisher@(_book.Year.HasValue ? $" · {_book.Year}" : "")</MudText>
+                        }
+                        @if (_book.Rating.HasValue)
+                        {
+                            <div class="d-flex align-center mt-1" style="gap:4px;">
+                                <MudRating ReadOnly="true" SelectedValue="@((int)Math.Round(_book.Rating.Value))" Size="Size.Small" />
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    @_book.Rating.Value.ToString("0.0")@(_book.RatingCount.HasValue ? $" ({_book.RatingCount.Value:N0} ratings)" : "")
+                                </MudText>
+                            </div>
+                        }
                         <div class="d-flex flex-wrap mt-2" style="gap:6px;">
                             <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Schedule" Variant="Variant.Text">
                                 @FormatDuration(_book.DurationSec)
@@ -83,6 +96,26 @@
                     <MudSimpleTable Dense="true" Hover="false">
                         <tbody>
                             <tr><td>Book Id</td><td>@_book.Id</td></tr>
+                            @if (!string.IsNullOrWhiteSpace(_book.Subtitle))
+                            {
+                                <tr><td>Subtitle</td><td>@_book.Subtitle</td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_book.Publisher))
+                            {
+                                <tr><td>Publisher</td><td>@_book.Publisher</td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_book.Language))
+                            {
+                                <tr><td>Language</td><td>@_book.Language.ToUpperInvariant()</td></tr>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_book.Isbn13) || !string.IsNullOrWhiteSpace(_book.Isbn10))
+                            {
+                                <tr><td>ISBN</td><td>@(_book.Isbn13 ?? _book.Isbn10)</td></tr>
+                            }
+                            @if (_book.PageCount.HasValue)
+                            {
+                                <tr><td>Pages</td><td>@_book.PageCount</td></tr>
+                            }
                             <tr><td>Added</td><td>@FormatDate(_book.AddedAt)</td></tr>
                             <tr><td>Last listened</td><td>@FormatNullableDate(_book.LastPlayedAt)</td></tr>
                             <tr><td>Resume chapter id</td><td>@(_book.ResumeChapterId?.ToString() ?? "N/A")</td></tr>
@@ -93,6 +126,27 @@
                         </tbody>
                     </MudSimpleTable>
                 </MudPaper>
+
+                @if (!string.IsNullOrWhiteSpace(_book.GoogleBooksUrl) || !string.IsNullOrWhiteSpace(_book.OpenLibraryUrl))
+                {
+                    <MudPaper Outlined="true" Class="pa-3">
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">External Links</MudText>
+                        <div class="d-flex flex-wrap" style="gap:8px;">
+                            @if (!string.IsNullOrWhiteSpace(_book.GoogleBooksUrl))
+                            {
+                                <MudButton Href="@_book.GoogleBooksUrl" Target="_blank" Variant="Variant.Outlined"
+                                           Size="Size.Small" StartIcon="@Icons.Material.Filled.MenuBook"
+                                           Color="Color.Primary">Google Books</MudButton>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_book.OpenLibraryUrl))
+                            {
+                                <MudButton Href="@_book.OpenLibraryUrl" Target="_blank" Variant="Variant.Outlined"
+                                           Size="Size.Small" StartIcon="@Icons.Material.Filled.LocalLibrary"
+                                           Color="Color.Primary">Open Library</MudButton>
+                            }
+                        </div>
+                    </MudPaper>
+                }
 
                 <MudPaper Outlined="true" Class="pa-3">
                     <MudText Typo="Typo.subtitle2" Class="mb-2">Genres</MudText>

@@ -11,6 +11,7 @@ public class AudioIndexer : IAudioIndexer
 
     private readonly AppDbContext _db;
     private readonly AudiobookSettings _settings;
+    private readonly BookMetadataLookup _metadataLookup;
     private readonly ILogger<AudioIndexer> _logger;
 
     public string RootPath => _settings.LibraryPath;
@@ -18,10 +19,12 @@ public class AudioIndexer : IAudioIndexer
     public AudioIndexer(
         AppDbContext db,
         Microsoft.Extensions.Options.IOptions<AudiobookSettings> options,
+        BookMetadataLookup metadataLookup,
         ILogger<AudioIndexer> logger)
     {
         _db = db;
         _settings = options.Value;
+        _metadataLookup = metadataLookup;
         _logger = logger;
     }
 
@@ -187,6 +190,71 @@ public class AudioIndexer : IAudioIndexer
         book.HasCover = hasCover;
         book.DurationSec = totalDuration;
         book.ChapterCount = scanned.Count;
+
+        // Enrich with external metadata for missing fields.
+        try
+        {
+            var external = await _metadataLookup.LookupAsync(title, author, ct).ConfigureAwait(false);
+            if (external is not null)
+            {
+                if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(external.Description))
+                    book.Description = external.Description;
+
+                if (string.IsNullOrWhiteSpace(book.Subtitle) && !string.IsNullOrWhiteSpace(external.Subtitle))
+                    book.Subtitle = external.Subtitle;
+
+                if (!hasCover && !string.IsNullOrWhiteSpace(external.CoverUrl))
+                {
+                    book.CoverUrl = external.CoverUrl;
+                    book.HasCover = true;
+                }
+
+                if (string.IsNullOrWhiteSpace(book.Publisher) && !string.IsNullOrWhiteSpace(external.Publisher))
+                    book.Publisher = external.Publisher;
+
+                if (string.IsNullOrWhiteSpace(book.Language) && !string.IsNullOrWhiteSpace(external.Language))
+                    book.Language = external.Language;
+
+                if (book.Isbn10 is null && external.Isbn10 is not null)
+                    book.Isbn10 = external.Isbn10;
+
+                if (book.Isbn13 is null && external.Isbn13 is not null)
+                    book.Isbn13 = external.Isbn13;
+
+                if (book.PageCount is null && external.PageCount is > 0)
+                    book.PageCount = external.PageCount;
+
+                if (book.Rating is null && external.Rating is > 0)
+                    book.Rating = external.Rating;
+
+                if (book.RatingCount is null && external.RatingCount is > 0)
+                    book.RatingCount = external.RatingCount;
+
+                if (book.Year is null && !string.IsNullOrWhiteSpace(external.PublishedDate)
+                    && int.TryParse(external.PublishedDate.AsSpan(0, Math.Min(4, external.PublishedDate.Length)), out var extYear)
+                    && extYear > 0)
+                    book.Year = extYear;
+
+                if (external.Source == "GoogleBooks" && string.IsNullOrWhiteSpace(book.GoogleBooksUrl))
+                    book.GoogleBooksUrl = external.InfoUrl;
+                else if (external.Source == "OpenLibrary" && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
+                    book.OpenLibraryUrl = external.InfoUrl;
+
+                if (external.Categories is { Count: > 0 })
+                {
+                    foreach (var cat in external.Categories)
+                    {
+                        if (!genreNames.Contains(cat, StringComparer.OrdinalIgnoreCase))
+                            genreNames.Add(cat);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "External metadata lookup failed for '{Title}'", title);
+        }
+
         book.Genres = await ResolveGenresAsync(genreNames, ct)
             .ConfigureAwait(false);
 
@@ -384,7 +452,8 @@ public class AudioIndexer : IAudioIndexer
             return new List<string>();
 
         return Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly)
-            .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()))
+            .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())
+                     && !Path.GetFileName(f).StartsWith('.'))
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
