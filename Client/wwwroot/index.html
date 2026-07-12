@@ -13,6 +13,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <script>
+        window.getStoredDarkMode = function() {
+            try { return localStorage.getItem('darkMode') === 'true'; } catch(e) { return false; }
+        };
+    </script>
 </head>
 <body>
     <div id="app">Loading...</div>

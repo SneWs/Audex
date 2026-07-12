@@ -1,8 +1,12 @@
 @inherits LayoutComponentBase
 @using System.Net.Http.Json
 @using Grenis.AudioBooks.Core
+@using Blazored.LocalStorage
+@using Microsoft.JSInterop
 @inject TokenAuthenticationStateProvider AuthProvider
 @inject HttpClient Http
+@inject ILocalStorageService LocalStorage
+@inject IJSRuntime JS
 @inject NavigationManager Nav
 
 <MudThemeProvider @bind-IsDarkMode="_isDarkMode" />
@@ -78,7 +82,11 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
+        {
+            _isDarkMode = await JS.InvokeAsync<bool>("getStoredDarkMode");
+            StateHasChanged();
             await LoadThemePreferenceAsync();
+        }
     }
 
     async void HandleAuthenticationStateChanged(Task<AuthenticationState> authTask)
@@ -86,8 +94,6 @@
         var authState = await authTask;
         if (authState.User.Identity?.IsAuthenticated == true)
             await LoadThemePreferenceAsync();
-        else
-            _isDarkMode = false;
 
         await InvokeAsync(StateHasChanged);
     }
@@ -97,6 +103,7 @@
     async Task ToggleThemeAsync()
     {
         _isDarkMode = !_isDarkMode;
+        await LocalStorage.SetItemAsync("darkMode", _isDarkMode);
         StateHasChanged();
 
         try
@@ -120,11 +127,15 @@
         {
             var account = await Http.GetFromJsonAsync<AccountDto>("/api/account");
             if (account is not null)
+            {
                 _isDarkMode = account.PrefersDarkMode;
+                await LocalStorage.SetItemAsync("darkMode", _isDarkMode);
+                StateHasChanged();
+            }
         }
         catch
         {
-            // Anonymous users or network failures keep the current/default theme.
+            // Anonymous users or network failures keep the cached/default theme.
         }
     }
 

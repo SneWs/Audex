@@ -1,5 +1,5 @@
 // Audex Service Worker – cache-first for static assets, network-first for API
-const CACHE_NAME = 'audex-cache-v2';
+const CACHE_NAME = 'audex-cache-v3';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -34,6 +34,18 @@ self.addEventListener('fetch', event => {
     if (url.pathname.startsWith('/api/')) {
         event.respondWith(
             fetch(event.request).catch(() => caches.match(event.request))
+        );
+        return;
+    }
+
+    // Network-first for navigation requests (HTML pages) so updates are picked up immediately
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request).then(response => {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                return response;
+            }).catch(() => caches.match(event.request))
         );
         return;
     }
