@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace Grenis.AudioBooks.Server;
@@ -31,8 +32,18 @@ public class AudioIndexBackgroundService : BackgroundService
 
         using (var scope = _scopeFactory.CreateScope())
         {
-            var indexer = scope.ServiceProvider.GetRequiredService<IAudioIndexer>();
-            await indexer.InitialScanAsync(stoppingToken);
+            var db = scope.ServiceProvider.GetRequiredService<Database.AppDbContext>();
+            var hasBooks = await db.Books.AnyAsync(stoppingToken);
+            if (!hasBooks)
+            {
+                _logger.LogInformation("No books in database — running initial scan.");
+                var indexer = scope.ServiceProvider.GetRequiredService<IAudioIndexer>();
+                await indexer.InitialScanAsync(stoppingToken);
+            }
+            else
+            {
+                _logger.LogInformation("Database already contains books — skipping initial scan.");
+            }
         }
 
         var watcher = new FileSystemWatcher(_rootPath) { IncludeSubdirectories = true };
