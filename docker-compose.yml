@@ -1,8 +1,6 @@
 services:
   db:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: secret
@@ -20,7 +18,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     ports:
-      - "5080:5000"
+      - "5011:5000"
     volumes:
       # Host path with audiobook files -> container. Set AUDIOBOOKS_PATH in .env to override.
       - ${AUDIOBOOKS_PATH:-./audio-source}:/audio-source
@@ -38,7 +36,7 @@ services:
       context: .
       dockerfile: Dockerfile.client
     ports:
-      - "5001:80"
+      - "5010:80"
     depends_on:
       - api
 volumes:
