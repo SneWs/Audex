@@ -3,6 +3,8 @@ Combining "Audio" with "Codex", the historical term for an ancient manuscript or
 
 Or in laymans terms, this is a audio book server + player where the player is also PWA enabled.
 
+![Audex Player](screenshots/audex-playing.png)
+
 ## Getting Started
 
 ### Prerequisites
@@ -97,5 +99,15 @@ dotnet ef migrations add <MigrationName> --project Server/Server.csproj
 | `docker compose up -d --build` | Rebuild and start |
 | `docker compose logs -f api` | Tail API logs |
 | `docker compose down` | Stop all services |
-| `docker compose down -v` | Stop and delete database volume | 
+| `docker compose down -v` | Stop and delete database volume |
+
+---
+
+## Screenshots
+
+![Audex Playing](screenshots/audex-playing.png)
+
+![Audex Continue](screenshots/audex-continue.png)
+
+![Audex Details](screenshots/audex-details.png) 
 
