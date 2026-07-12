@@ -3,11 +3,14 @@
 @using Grenis.AudioBooks.Core
 @using Blazored.LocalStorage
 @using Microsoft.JSInterop
+@implements IAsyncDisposable
 @inject TokenAuthenticationStateProvider AuthProvider
 @inject HttpClient Http
 @inject ILocalStorageService LocalStorage
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject LibraryHubService Hub
+@inject ISnackbar Snackbar
 
 <MudThemeProvider @bind-IsDarkMode="_isDarkMode" Theme="_theme" />
 <MudPopoverProvider />
@@ -123,7 +126,24 @@
             _isDarkMode = await JS.InvokeAsync<bool>("getStoredDarkMode");
             StateHasChanged();
             await LoadThemePreferenceAsync();
+            await StartHubAsync();
         }
+    }
+
+    async Task StartHubAsync()
+    {
+        Hub.BookAdded += (id, title) => InvokeAsync(() =>
+            Snackbar.Add($"New book discovered: {title}", Severity.Info, o => o.Icon = Icons.Material.Filled.LibraryAdd));
+        Hub.BookUpdated += (id, title) => InvokeAsync(() =>
+            Snackbar.Add($"Book updated: {title}", Severity.Normal, o => o.Icon = Icons.Material.Filled.Update));
+        Hub.BookRemoved += (id, title) => InvokeAsync(() =>
+            Snackbar.Add($"Book removed: {title}", Severity.Warning, o => o.Icon = Icons.Material.Filled.DeleteSweep));
+        Hub.ScanStarted += () => InvokeAsync(() =>
+            Snackbar.Add("Library scan started...", Severity.Info, o => { o.Icon = Icons.Material.Filled.Radar; o.VisibleStateDuration = 3000; }));
+        Hub.ScanCompleted += (count) => InvokeAsync(() =>
+            Snackbar.Add($"Scan complete — {count} book(s) in library", Severity.Success, o => o.Icon = Icons.Material.Filled.CheckCircle));
+
+        await Hub.StartAsync();
     }
 
     async void HandleAuthenticationStateChanged(Task<AuthenticationState> authTask)
@@ -195,8 +215,9 @@
         Nav.NavigateTo("/login");
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         AuthProvider.AuthenticationStateChanged -= HandleAuthenticationStateChanged;
+        await Hub.DisposeAsync();
     }
 }

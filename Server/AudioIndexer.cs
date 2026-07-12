@@ -1,5 +1,6 @@
 using Grenis.AudioBooks.Server.Database;
 using Grenis.AudioBooks.Server.Database.Tables;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Grenis.AudioBooks.Server;
@@ -9,9 +10,12 @@ public class AudioIndexer : IAudioIndexer
     private static readonly string[] AudioExtensions =
         { ".mp3", ".m4a", ".m4b", ".aac", ".ogg", ".flac", ".wav" };
 
+    private static readonly SemaphoreSlim _indexLock = new(1, 1);
+
     private readonly AppDbContext _db;
     private readonly AudiobookSettings _settings;
     private readonly BookMetadataLookup _metadataLookup;
+    private readonly IHubContext<LibraryHub, ILibraryHubClient> _hub;
     private readonly ILogger<AudioIndexer> _logger;
 
     public string RootPath => _settings.LibraryPath;
@@ -20,11 +24,13 @@ public class AudioIndexer : IAudioIndexer
         AppDbContext db,
         Microsoft.Extensions.Options.IOptions<AudiobookSettings> options,
         BookMetadataLookup metadataLookup,
+        IHubContext<LibraryHub, ILibraryHubClient> hub,
         ILogger<AudioIndexer> logger)
     {
         _db = db;
         _settings = options.Value;
         _metadataLookup = metadataLookup;
+        _hub = hub;
         _logger = logger;
     }
 
@@ -36,24 +42,43 @@ public class AudioIndexer : IAudioIndexer
             return;
         }
 
+        await _hub.Clients.All.ScanStarted();
+
         // Every directory that directly contains at least one audio file is a book.
         var bookFolders = Directory.EnumerateDirectories(RootPath, "*", SearchOption.AllDirectories)
             .Append(RootPath)
             .Where(HasAudioFiles)
             .ToList();
 
-        foreach (var folder in bookFolders)
+        for (var i = 0; i < bookFolders.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
-            await IndexFolderAsync(folder, ct)
+            await _hub.Clients.All.ScanProgress($"Scanning {i + 1}/{bookFolders.Count}: {Path.GetFileName(bookFolders[i])}");
+            await IndexFolderAsync(bookFolders[i], ct)
                 .ConfigureAwait(false);
         }
 
         await PruneMissingBooksAsync(ct)
             .ConfigureAwait(false);
+
+        var totalBooks = await _db.Books.CountAsync(ct).ConfigureAwait(false);
+        await _hub.Clients.All.ScanCompleted(totalBooks);
     }
 
     public async Task IndexFolderAsync(string folderFullPath, CancellationToken ct)
+    {
+        await _indexLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await IndexFolderCoreAsync(folderFullPath, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+
+    private async Task IndexFolderCoreAsync(string folderFullPath, CancellationToken ct)
     {
         var relFolder = RelPath(folderFullPath);
 
@@ -66,10 +91,13 @@ public class AudioIndexer : IAudioIndexer
 
             if (stale != null)
             {
+                var removedId = stale.Id;
+                var removedTitle = stale.Title;
                 _db.Books.Remove(stale);
                 await _db.SaveChangesAsync(ct)
                     .ConfigureAwait(false);
 
+                await _hub.Clients.All.BookRemoved(removedId, removedTitle);
                 _logger.LogInformation("Removed book (no audio left): {Folder}", relFolder);
             }
             return;
@@ -141,10 +169,12 @@ public class AudioIndexer : IAudioIndexer
             .FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct)
             .ConfigureAwait(false);
 
+        var isNew = false;
         if (book == null)
         {
             book = new Book { FolderPath = relFolder, AddedAt = DateTime.UtcNow };
             _db.Books.Add(book);
+            isNew = true;
         }
         else if (book.AddedAt == default)
         {
@@ -237,8 +267,10 @@ public class AudioIndexer : IAudioIndexer
 
                 if (external.Source == "GoogleBooks" && string.IsNullOrWhiteSpace(book.GoogleBooksUrl))
                     book.GoogleBooksUrl = external.InfoUrl;
-                else if (external.Source == "OpenLibrary" && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
+                if (external.Source == "OpenLibrary" && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
                     book.OpenLibraryUrl = external.InfoUrl;
+                if (!string.IsNullOrWhiteSpace(external.OpenLibraryInfoUrl) && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
+                    book.OpenLibraryUrl = external.OpenLibraryInfoUrl;
 
                 if (external.Categories is { Count: > 0 })
                 {
@@ -260,6 +292,11 @@ public class AudioIndexer : IAudioIndexer
 
         await _db.SaveChangesAsync(ct)
             .ConfigureAwait(false);
+
+        if (isNew)
+            await _hub.Clients.All.BookAdded(book.Id, title);
+        else
+            await _hub.Clients.All.BookUpdated(book.Id, title);
 
         _logger.LogInformation("Indexed '{Title}' ({Count} chapter(s), {Dur}s, genres: {Genres})",
             title, scanned.Count, totalDuration,

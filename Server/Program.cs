@@ -68,6 +68,7 @@ builder.Services.AddHttpClient<BookMetadataLookup>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0");
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddSignalR();
 builder.Services.AddScoped<IAudioIndexer, AudioIndexer>();
 builder.Services.AddHostedService<AudioIndexBackgroundService>();
 
@@ -85,6 +86,8 @@ using (var scope = app.Services.CreateScope())
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapHub<LibraryHub>("/hubs/library");
 
 app.UseSwagger();
 app.UseSwaggerUI(options =>

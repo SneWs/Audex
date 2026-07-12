@@ -34,14 +34,41 @@ public class BookMetadataLookup
                 await Task.Delay(MinDelayMs - (int)elapsed, ct).ConfigureAwait(false);
 
             // Try Google Books first (richer data), fall back to Open Library.
-            var result = await TryGoogleBooksAsync(title, author, ct).ConfigureAwait(false)
-                      ?? await TryOpenLibraryAsync(title, author, ct).ConfigureAwait(false);
+            var result = await TryGoogleBooksAsync(title, author, ct).ConfigureAwait(false);
+            var olResult = await TryOpenLibraryAsync(title, author, ct).ConfigureAwait(false);
+
+            if (result is null)
+            {
+                result = olResult;
+            }
+            else if (olResult is not null)
+            {
+                // Supplement Google Books data with Open Library data (ratings, description, cover).
+                result.Rating ??= olResult.Rating;
+                result.RatingCount ??= olResult.RatingCount;
+                result.Description ??= olResult.Description;
+                result.CoverUrl ??= olResult.CoverUrl;
+                // Merge categories from both sources.
+                if (olResult.Categories is { Count: > 0 })
+                {
+                    result.Categories ??= new List<string>();
+                    foreach (var cat in olResult.Categories)
+                    {
+                        if (!result.Categories.Contains(cat, StringComparer.OrdinalIgnoreCase))
+                            result.Categories.Add(cat);
+                    }
+                }
+                result.InfoUrl ??= olResult.InfoUrl;
+                // Store the Open Library URL separately.
+                if (result.Source == "GoogleBooks" && olResult.InfoUrl is not null)
+                    result.OpenLibraryInfoUrl = olResult.InfoUrl;
+            }
 
             _lastRequest = DateTime.UtcNow;
 
             if (result is not null)
-                _logger.LogInformation("External metadata found for '{Title}' by '{Author}' via {Source}",
-                    title, author ?? "?", result.Source);
+                _logger.LogInformation("External metadata found for '{Title}' by '{Author}' via {Source} (rating: {Rating})",
+                    title, author ?? "?", result.Source, result.Rating?.ToString("0.0") ?? "none");
             else
                 _logger.LogWarning("No external metadata found for '{Title}' by '{Author}'", title, author ?? "?");
 
@@ -99,8 +126,15 @@ public class BookMetadataLookup
         }
 
         var data = await response.Content.ReadFromJsonAsync<GoogleBooksResponse>(ct).ConfigureAwait(false);
-        var item = data?.Items?.FirstOrDefault();
-        var vol = item?.VolumeInfo;
+        if (data?.Items is null || data.Items.Count == 0) return null;
+
+        // Prefer the result with the most data (rating, description, cover).
+        var item = data.Items
+            .OrderByDescending(i => i.VolumeInfo?.AverageRating.HasValue == true ? 1 : 0)
+            .ThenByDescending(i => !string.IsNullOrWhiteSpace(i.VolumeInfo?.Description) ? 1 : 0)
+            .ThenByDescending(i => i.VolumeInfo?.ImageLinks is not null ? 1 : 0)
+            .First();
+        var vol = item.VolumeInfo;
         if (vol is null) return null;
 
         // Prefer larger images: large > medium > small > thumbnail > smallThumbnail.
@@ -184,12 +218,22 @@ public class BookMetadataLookup
                 .Take(10)
                 .ToList();
 
+            // Fetch ratings from Open Library.
+            double? rating = null;
+            int? ratingCount = null;
+            if (!string.IsNullOrWhiteSpace(doc.Key))
+            {
+                (rating, ratingCount) = await FetchOpenLibraryRatingAsync(doc.Key, ct).ConfigureAwait(false);
+            }
+
             return new ExternalMetadata
             {
                 Source = "OpenLibrary",
                 Description = description,
                 Categories = categories,
                 CoverUrl = coverUrl,
+                Rating = rating,
+                RatingCount = ratingCount,
                 InfoUrl = doc.Key is not null ? $"https://openlibrary.org{doc.Key}" : null
             };
         }
@@ -230,6 +274,40 @@ public class BookMetadataLookup
         }
     }
 
+    private async Task<(double? Rating, int? Count)> FetchOpenLibraryRatingAsync(string workKey, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"https://openlibrary.org{workKey}/ratings.json";
+            var response = await _http.GetAsync(url, ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return (null, null);
+
+            using var doc = await JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false), cancellationToken: ct)
+                .ConfigureAwait(false);
+
+            if (!doc.RootElement.TryGetProperty("summary", out var summary))
+                return (null, null);
+
+            double? average = null;
+            int? count = null;
+
+            if (summary.TryGetProperty("average", out var avgEl) && avgEl.ValueKind == JsonValueKind.Number)
+                average = avgEl.GetDouble();
+
+            if (summary.TryGetProperty("count", out var cntEl) && cntEl.ValueKind == JsonValueKind.Number)
+                count = cntEl.GetInt32();
+
+            if (count is null or 0) return (null, null);
+
+            return (average, count);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
     // ── Result DTO ───────────────────────────────────────────────────
 
     public class ExternalMetadata
@@ -248,6 +326,7 @@ public class BookMetadataLookup
         public double? Rating { get; set; }
         public int? RatingCount { get; set; }
         public string? InfoUrl { get; set; }
+        public string? OpenLibraryInfoUrl { get; set; }
     }
 
     // ── JSON models ──────────────────────────────────────────────────

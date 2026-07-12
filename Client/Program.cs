@@ -25,5 +25,6 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<TokenAuthenticationStateProvider>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<TokenAuthenticationStateProvider>());
 builder.Services.AddScoped<AudioPlayerService>();
+builder.Services.AddScoped<LibraryHubService>();
 
 await builder.Build().RunAsync();
