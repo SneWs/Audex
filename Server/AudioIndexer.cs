@@ -74,6 +74,7 @@ public class AudioIndexer : IAudioIndexer
 
         var scanned = new List<ScannedChapter>();
         var author = "Unknown";
+        int? year = null;
         string? readBy = null;
         string? description = null;
         string? album = null;
@@ -94,6 +95,8 @@ public class AudioIndexer : IAudioIndexer
 
             if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author)) 
                 author = meta.Author!;
+            if (year is null && meta.Year > 0)
+                year = meta.Year;
             if (readBy == null && !string.IsNullOrWhiteSpace(meta.ReadBy)) 
                 readBy = meta.ReadBy;
             if (album == null && !string.IsNullOrWhiteSpace(meta.Album)) 
@@ -178,6 +181,7 @@ public class AudioIndexer : IAudioIndexer
 
         book.Title = title;
         book.Author = author;
+        book.Year = year;
         book.ReadBy = readBy;
         book.Description = description;
         book.HasCover = hasCover;
@@ -433,6 +437,7 @@ public class AudioIndexer : IAudioIndexer
             {
                 Title = tag.Title,
                 Author = tag.FirstPerformer ?? tag.FirstAlbumArtist ?? tag.FirstComposer,
+                Year = tag.Year > 0 ? (int)tag.Year : null,
                 ReadBy = FirstNonEmpty(tag.Composers) ?? FirstNonEmpty(tag.AlbumArtists),
                 Album = tag.Album,
                 Genres = tag.Genres ?? Array.Empty<string>(),
@@ -464,6 +469,7 @@ public class AudioIndexer : IAudioIndexer
     {
         public string? Title { get; set; }
         public string? Author { get; set; }
+        public int? Year { get; set; }
         public string? ReadBy { get; set; }
         public string? Album { get; set; }
         public string[] Genres { get; set; } = Array.Empty<string>();

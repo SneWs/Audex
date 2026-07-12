@@ -4,6 +4,7 @@ public class Book
     public int Id { get; set; }
     public string Title { get; set; } = default!;
     public string Author { get; set; } = default!;
+    public int? Year { get; set; }
     public string? ReadBy { get; set; }                 // narrator, from AlbumArtists tag
     public string FolderPath { get; set; } = default!; // relative to library path
     public int DurationSec { get; set; }               // total across all chapters

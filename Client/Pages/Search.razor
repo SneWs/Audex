@@ -1,0 +1,232 @@
+@page "/search"
+@using System.Net.Http.Json
+@using Grenis.AudioBooks.Core
+@attribute [Authorize]
+@inject HttpClient Http
+
+<div class="mb-4">
+    <MudText Typo="Typo.h4">Search</MudText>
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">Search your library by title, author, year, narrator, genre, and more</MudText>
+</div>
+
+<MudDivider Class="mb-6" />
+
+<MudGrid Class="mb-4">
+    <MudItem xs="12" md="7">
+        <MudTextField T="string"
+                      Value="@_query"
+                      ValueChanged="OnQueryChanged"
+                      Label="Search books"
+                      Placeholder="Try a title, author, year, narrator, or genre"
+                      Variant="Variant.Outlined"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Clearable="true"
+                      Immediate="true"
+                      FullWidth="true" />
+    </MudItem>
+    <MudItem xs="12" md="5" Class="d-flex align-center justify-end">
+        <MudChipSet T="string">
+            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Primary">
+                @FilteredBooks.Length result@(FilteredBooks.Length == 1 ? "" : "s")
+            </MudChip>
+            @if (HasActiveFilters)
+            {
+                <MudChip T="string" Variant="Variant.Text" Color="Color.Default" OnClose="ClearFilters">
+                    Clear filters
+                </MudChip>
+            }
+        </MudChipSet>
+    </MudItem>
+</MudGrid>
+
+<MudPaper Outlined="true" Class="pa-4 mb-6">
+    <div class="d-flex align-center justify-space-between mb-3">
+        <MudText Typo="Typo.h6">Filters</MudText>
+        @if (HasActiveFilters)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="ClearFilters">Reset</MudButton>
+        }
+    </div>
+
+    <MudExpansionPanels MultiExpansion="true">
+        <MudExpansionPanel Text="Authors">
+            <div class="d-flex flex-wrap" style="gap:8px;">
+                @foreach (var author in AuthorOptions)
+                {
+                    <MudChip T="string"
+                             Text="@author"
+                             Variant="@(IsAuthorSelected(author) ? Variant.Filled : Variant.Outlined)"
+                             Color="@(IsAuthorSelected(author) ? Color.Primary : Color.Default)"
+                             OnClick="() => ToggleAuthor(author)" />
+                }
+            </div>
+        </MudExpansionPanel>
+        <MudExpansionPanel Text="Years">
+            <div class="d-flex flex-wrap" style="gap:8px;">
+                @foreach (var year in YearOptions)
+                {
+                    <MudChip T="string"
+                             Text="@year.ToString()"
+                             Variant="@(IsYearSelected(year) ? Variant.Filled : Variant.Outlined)"
+                             Color="@(IsYearSelected(year) ? Color.Primary : Color.Default)"
+                             OnClick="() => ToggleYear(year)" />
+                }
+            </div>
+        </MudExpansionPanel>
+        <MudExpansionPanel Text="Narrators">
+            <div class="d-flex flex-wrap" style="gap:8px;">
+                @foreach (var narrator in NarratorOptions)
+                {
+                    <MudChip T="string"
+                             Text="@narrator"
+                             Variant="@(IsNarratorSelected(narrator) ? Variant.Filled : Variant.Outlined)"
+                             Color="@(IsNarratorSelected(narrator) ? Color.Primary : Color.Default)"
+                             OnClick="() => ToggleNarrator(narrator)" />
+                }
+            </div>
+        </MudExpansionPanel>
+        <MudExpansionPanel Text="Genres">
+            <div class="d-flex flex-wrap" style="gap:8px;">
+                @foreach (var genre in GenreOptions)
+                {
+                    <MudChip T="string"
+                             Text="@genre"
+                             Variant="@(IsGenreSelected(genre) ? Variant.Filled : Variant.Outlined)"
+                             Color="@(IsGenreSelected(genre) ? Color.Primary : Color.Default)"
+                             OnClick="() => ToggleGenre(genre)" />
+                }
+            </div>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+</MudPaper>
+
+<BookGrid Books="@FilteredBooks"
+          EmptyTitle="No books found"
+          EmptyIcon="@Icons.Material.Filled.SearchOff"
+          EmptyText="Try a broader search or clear one of the active filters." />
+
+@code {
+    BookDto[] _allBooks = Array.Empty<BookDto>();
+    string _query = string.Empty;
+    HashSet<string> _selectedAuthors = new(StringComparer.OrdinalIgnoreCase);
+    HashSet<int> _selectedYears = new();
+    HashSet<string> _selectedNarrators = new(StringComparer.OrdinalIgnoreCase);
+    HashSet<string> _selectedGenres = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _allBooks = await Http.GetFromJsonAsync<BookDto[]>("/api/books") ?? Array.Empty<BookDto>();
+        }
+        catch
+        {
+            _allBooks = Array.Empty<BookDto>();
+        }
+    }
+
+    BookDto[] FilteredBooks => _allBooks
+        .Where(MatchesQuery)
+        .Where(MatchesAuthor)
+        .Where(MatchesYear)
+        .Where(MatchesNarrator)
+        .Where(MatchesGenre)
+        .OrderBy(b => b.Title)
+        .ToArray();
+
+    IEnumerable<string> AuthorOptions => _allBooks
+        .Select(b => b.Author?.Trim())
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)!;
+
+    IEnumerable<int> YearOptions => _allBooks
+        .Where(b => b.Year is not null)
+        .Select(b => b.Year!.Value)
+        .Distinct()
+        .OrderByDescending(y => y);
+
+    IEnumerable<string> NarratorOptions => _allBooks
+        .Select(b => b.ReadBy?.Trim())
+        .Where(v => !string.IsNullOrWhiteSpace(v))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)!;
+
+    IEnumerable<string> GenreOptions => _allBooks
+        .SelectMany(b => b.Genres)
+        .Select(g => g.Trim())
+        .Where(g => !string.IsNullOrWhiteSpace(g))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(g => g, StringComparer.OrdinalIgnoreCase);
+
+    bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_query)
+        || _selectedAuthors.Count > 0
+        || _selectedYears.Count > 0
+        || _selectedNarrators.Count > 0
+        || _selectedGenres.Count > 0;
+
+    Task OnQueryChanged(string value)
+    {
+        _query = value;
+        return Task.CompletedTask;
+    }
+
+    bool MatchesQuery(BookDto book)
+    {
+        var query = _query.Trim();
+        if (string.IsNullOrWhiteSpace(query))
+            return true;
+
+        return SearchTerms(book).Any(term => term.Contains(query, StringComparison.OrdinalIgnoreCase));
+    }
+
+    static IEnumerable<string> SearchTerms(BookDto book)
+    {
+        yield return book.Title;
+        yield return book.Author;
+        if (!string.IsNullOrWhiteSpace(book.ReadBy))
+            yield return book.ReadBy;
+        if (!string.IsNullOrWhiteSpace(book.Description))
+            yield return book.Description;
+        if (book.Year is not null)
+            yield return book.Year.Value.ToString();
+        foreach (var genre in book.Genres)
+            yield return genre;
+    }
+
+    bool MatchesAuthor(BookDto book) => _selectedAuthors.Count == 0 || _selectedAuthors.Contains(book.Author);
+    bool MatchesYear(BookDto book) => _selectedYears.Count == 0 || (book.Year is not null && _selectedYears.Contains(book.Year.Value));
+    bool MatchesNarrator(BookDto book) => _selectedNarrators.Count == 0 || (!string.IsNullOrWhiteSpace(book.ReadBy) && _selectedNarrators.Contains(book.ReadBy));
+    bool MatchesGenre(BookDto book) => _selectedGenres.Count == 0 || book.Genres.Any(g => _selectedGenres.Contains(g));
+
+    bool IsAuthorSelected(string author) => _selectedAuthors.Contains(author);
+    bool IsYearSelected(int year) => _selectedYears.Contains(year);
+    bool IsNarratorSelected(string narrator) => _selectedNarrators.Contains(narrator);
+    bool IsGenreSelected(string genre) => _selectedGenres.Contains(genre);
+
+    void ToggleAuthor(string author) => Toggle(_selectedAuthors, author);
+    void ToggleYear(int year)
+    {
+        if (!_selectedYears.Add(year))
+            _selectedYears.Remove(year);
+    }
+    void ToggleNarrator(string narrator) => Toggle(_selectedNarrators, narrator);
+    void ToggleGenre(string genre) => Toggle(_selectedGenres, genre);
+
+    void ClearFilters()
+    {
+        _query = string.Empty;
+        _selectedAuthors.Clear();
+        _selectedYears.Clear();
+        _selectedNarrators.Clear();
+        _selectedGenres.Clear();
+    }
+
+    static void Toggle(HashSet<string> set, string value)
+    {
+        if (!set.Add(value))
+            set.Remove(value);
+    }
+}

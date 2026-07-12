@@ -5,6 +5,7 @@ public class BookDto
     public int Id { get; init; }
     public string Title { get; init; } = string.Empty;
     public string Author { get; init; } = string.Empty;
+    public int? Year { get; init; }
     public string? ReadBy { get; init; }
     public int DurationSec { get; init; }
     public int ChapterCount { get; init; }
