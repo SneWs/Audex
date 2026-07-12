@@ -11,6 +11,7 @@
 @inject NavigationManager Nav
 @inject LibraryHubService Hub
 @inject ISnackbar Snackbar
+@inject AudioPlayerService Player
 
 <MudThemeProvider @bind-IsDarkMode="_isDarkMode" Theme="_theme" />
 <MudPopoverProvider />
@@ -214,6 +215,7 @@
 
     async Task LogoutAsync()
     {
+        Player.Close();
         await AuthProvider.MarkUserAsLoggedOut();
         Nav.NavigateTo("/login");
     }
