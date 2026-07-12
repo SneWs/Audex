@@ -23,16 +23,18 @@
         <MudIcon Icon="@Icons.Material.Filled.Headphones" Class="ml-2" />
         <MudText Typo="Typo.h6" Class="ml-2">Audex</MudText>
         <MudSpacer />
-        <MudTooltip Text="Toggle light/dark mode">
+        @* <MudTooltip Text="Toggle light/dark mode">
             <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                            Color="Color.Inherit" OnClick="ToggleThemeAsync" />
-        </MudTooltip>
+        </MudTooltip> *@
         <AuthorizeView>
             <Authorized>
-                <MudTooltip Text="Account">
-                    <MudIconButton Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" Href="/account" />
+                <MudTooltip Text="Continue listening">
+                    <MudButton StartIcon="@Icons.Material.Filled.PlayCircleOutline" Color="Color.Inherit" Href="/continue" />
                 </MudTooltip>
-                <MudButton StartIcon="@Icons.Material.Filled.Logout" Color="Color.Inherit" OnClick="LogoutAsync">Logout</MudButton>
+                <MudTooltip Text="Search library">
+                    <MudButton StartIcon="@Icons.Material.Filled.Search" Color="Color.Inherit" Href="/search" />
+                </MudTooltip>
             </Authorized>
             <NotAuthorized>
                 <MudButton StartIcon="@Icons.Material.Filled.Login" Color="Color.Inherit" Href="/login">Login</MudButton>
@@ -55,6 +57,7 @@
                     <MudNavLink Href="/search" Icon="@Icons.Material.Filled.Search">Search</MudNavLink>
                     <MudDivider Class="my-2" />
                     <MudNavLink Href="/account" Icon="@Icons.Material.Filled.AccountCircle">Account</MudNavLink>
+                    <MudNavLink Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">Logout</MudNavLink>
                 </Authorized>
                 <NotAuthorized>
                     <MudNavLink Href="/login" Icon="@Icons.Material.Filled.Login">Login</MudNavLink>
@@ -75,7 +78,7 @@
 
 @code {
     bool _drawerOpen = true;
-    bool _isDarkMode;
+    bool _isDarkMode = true;
 
     readonly MudTheme _theme = new()
     {
@@ -123,7 +126,7 @@
     {
         if (firstRender)
         {
-            _isDarkMode = await JS.InvokeAsync<bool>("getStoredDarkMode");
+            _isDarkMode = true; // = await JS.InvokeAsync<bool>("getStoredDarkMode");
             StateHasChanged();
             await LoadThemePreferenceAsync();
             await StartHubAsync();

@@ -1,5 +1,5 @@
-// Audex Service Worker – cache-first for static assets, network-first for API
-const CACHE_NAME = 'audex-cache-v3';
+// Audex Service Worker
+const CACHE_NAME = 'audex-cache-v5';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -50,18 +50,14 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Cache-first for static assets, fallback to network
+    // Network-first for all other assets, fallback to cache
     event.respondWith(
-        caches.match(event.request).then(cached => {
-            if (cached) return cached;
-            return fetch(event.request).then(response => {
-                // Cache successful GET responses for framework files
-                if (response.ok && event.request.method === 'GET' && url.pathname.startsWith('/_framework/')) {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                }
-                return response;
-            });
-        })
+        fetch(event.request).then(response => {
+            if (response.ok && event.request.method === 'GET') {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            }
+            return response;
+        }).catch(() => caches.match(event.request))
     );
 });
