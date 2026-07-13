@@ -1,6 +1,7 @@
 @using System.Net.Http.Json
 @using Grenis.AudioBooks.Core
 @inject HttpClient Http
+@inject ISnackbar Snackbar
 
 <MudDialog>
     <DialogContent>
@@ -202,6 +203,11 @@
         }
     </DialogContent>
     <DialogActions>
+        <MudButton Color="Color.Primary" Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.Sync" OnClick="RescanBookAsync"
+                   Disabled="_loading || _rescanning || _book == null">
+            @(_rescanning ? "Refreshing…" : "Refresh metadata")
+        </MudButton>
         <MudButton Color="Color.Default" Variant="Variant.Text" OnClick="Close">Close</MudButton>
     </DialogActions>
 </MudDialog>
@@ -212,23 +218,64 @@
 
     BookDetailDto? _book;
     bool _loading = true;
+    bool _rescanning;
     string? _error;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync() => LoadBookAsync();
+
+    async Task LoadBookAsync()
     {
+        _loading = true;
+        _error = null;
         try
         {
             _book = await Http.GetFromJsonAsync<BookDetailDto>($"/api/books/{BookId}");
-            if (_book is null)
+            if (_book == null)
                 _error = "Book details are unavailable.";
         }
         catch
         {
+            _book = null;
             _error = "Unable to load book details right now.";
         }
         finally
         {
             _loading = false;
+        }
+    }
+
+    async Task RescanBookAsync()
+    {
+        if (_book == null)
+            return;
+
+        _rescanning = true;
+        try
+        {
+            var response = await Http.PostAsync($"/api/books/{_book.Id}/rescan", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadBookAsync();
+                Snackbar.Add("Book metadata refreshed.", Severity.Success);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _book = null;
+                _error = "Book is no longer available in your library.";
+                Snackbar.Add("Book was not found during re-scan.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Book re-scan failed. Please try again.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Book re-scan failed. Please try again.", Severity.Error);
+        }
+        finally
+        {
+            _rescanning = false;
         }
     }
 
@@ -248,5 +295,5 @@
 
     static string FormatDate(DateTime dt) => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
 
-    static string FormatNullableDate(DateTime? dt) => dt is null ? "Never" : FormatDate(dt.Value);
+    static string FormatNullableDate(DateTime? dt) => dt == null ? "Never" : FormatDate(dt.Value);
 }

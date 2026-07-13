@@ -326,6 +326,19 @@ books.MapPost("/api/books/rescan", (IAudioIndexer indexer, IServiceProvider sp) 
 .WithSummary("Trigger a full re-scan of the library (progress is preserved)")
 .Produces<RescanResponse>();
 
+books.MapPost("/api/books/{id:int}/rescan", async (int id, IAudioIndexer indexer) =>
+{
+    var found = await indexer.RescanBookAsync(id);
+    if (!found)
+        return Results.NotFound();
+
+    return Results.Ok(new MessageResponse("Book re-scan completed."));
+})
+.RequireAuthorization()
+.WithSummary("Re-scan a single audiobook folder to refresh metadata enrichment")
+.Produces<MessageResponse>()
+.Produces(StatusCodes.Status404NotFound);
+
 books.MapGet("/api/books/{id:int}/cover", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt, IHttpClientFactory httpFactory) =>
 {
     var book = await db.Books.FindAsync(id);

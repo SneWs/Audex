@@ -65,6 +65,20 @@ public class AudioIndexer : IAudioIndexer
         await _hub.Clients.All.ScanCompleted(totalBooks);
     }
 
+    public async Task<bool> RescanBookAsync(int bookId, CancellationToken ct = default)
+    {
+        var book = await _db.Books.AsNoTracking()
+            .FirstOrDefaultAsync(b => b.Id == bookId, ct)
+            .ConfigureAwait(false);
+
+        if (book == null)
+            return false;
+
+        var folderFullPath = Path.Combine(RootPath, book.FolderPath);
+        await IndexFolderAsync(folderFullPath, ct).ConfigureAwait(false);
+        return true;
+    }
+
     public async Task IndexFolderAsync(string folderFullPath, CancellationToken ct)
     {
         await _indexLock.WaitAsync(ct).ConfigureAwait(false);
@@ -109,6 +123,8 @@ public class AudioIndexer : IAudioIndexer
         string? readBy = null;
         string? description = null;
         string? album = null;
+        string? taggedTitle = null;
+        string? firstFileNameTitle = null;
         var genreNames = new List<string>();
         var hasCover = false;
         var index = 0;
@@ -132,6 +148,10 @@ public class AudioIndexer : IAudioIndexer
                 readBy = meta.ReadBy;
             if (album == null && !string.IsNullOrWhiteSpace(meta.Album)) 
                 album = meta.Album;
+            if (taggedTitle == null && !string.IsNullOrWhiteSpace(meta.Title))
+                taggedTitle = meta.Title;
+            if (firstFileNameTitle == null)
+                firstFileNameTitle = Path.GetFileNameWithoutExtension(file);
             if (description == null && !string.IsNullOrWhiteSpace(meta.Description)) 
                 description = meta.Description;
             if (meta.HasCover) 
@@ -164,6 +184,7 @@ public class AudioIndexer : IAudioIndexer
         var totalDuration = scanned.Sum(c => c.DurationSec);
 
         var book = await _db.Books
+            .AsSplitQuery()
             .Include(b => b.Chapters)
             .Include(b => b.Genres)
             .FirstOrDefaultAsync(b => b.FolderPath == relFolder, ct)
@@ -180,6 +201,8 @@ public class AudioIndexer : IAudioIndexer
         {
             book.AddedAt = DateTime.UtcNow;
         }
+
+        var previousDbTitle = book.Title;
 
         // Reconcile chapters by FilePath so unchanged files keep their Chapter.Id
         // (and therefore any saved listening progress) across a re-scan.
@@ -224,7 +247,14 @@ public class AudioIndexer : IAudioIndexer
         // Enrich with external metadata for missing fields.
         try
         {
-            var external = await _metadataLookup.LookupAsync(title, author, ct).ConfigureAwait(false);
+            BookMetadataLookup.ExternalMetadata? external = null;
+            foreach (var lookupTitle in BuildLookupTitleCandidates(album, taggedTitle, firstFileNameTitle, previousDbTitle))
+            {
+                external = await _metadataLookup.LookupAsync(lookupTitle, author, ct).ConfigureAwait(false);
+                if (external != null)
+                    break;
+            }
+
             if (external is not null)
             {
                 if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(external.Description))
@@ -561,6 +591,33 @@ public class AudioIndexer : IAudioIndexer
     }
 
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static List<string> BuildLookupTitleCandidates(
+        string? metadataAlbumTitle,
+        string? metadataTrackTitle,
+        string? fileNameTitle,
+        string? databaseTitle)
+    {
+        var titles = new List<string>();
+        AddCandidateTitle(titles, metadataAlbumTitle);
+        AddCandidateTitle(titles, metadataTrackTitle);
+        AddCandidateTitle(titles, fileNameTitle);
+        AddCandidateTitle(titles, databaseTitle);
+        return titles;
+    }
+
+    private static void AddCandidateTitle(List<string> titles, string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+            return;
+
+        var normalized = candidate.Trim();
+        if (titles.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+            return;
+
+        titles.Add(normalized);
+    }
+
     private static string? FirstNonEmpty(string[]? values)
     {
         var picked = values?.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToArray();
