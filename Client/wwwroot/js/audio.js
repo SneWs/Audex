@@ -9,6 +9,12 @@ window.getCurrentTime = function (id) {
     return el ? el.currentTime : 0;
 };
 
+window.pauseAudio = function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.pause();
+};
+
 // ── Audio player management ────────────────────────────────────────
 
 var _audioRef = null;       // current <audio> element reference

@@ -7,7 +7,7 @@
 @inject HttpClient Http
 @inject AuthenticationStateProvider AuthProvider
 
-@if (Player.Current is not null)
+@if (Player.Current != null)
 {
     <MudPaper Square="true" Elevation="8"
               Style="position:fixed;bottom:0;left:0;right:0;z-index:1300;border-top:1px solid var(--mud-palette-primary);"
@@ -34,7 +34,7 @@
             <div style="min-width:0;flex:1;">
                 <MudText Typo="Typo.subtitle2" Style="line-height:1.15" Class="text-truncate">@Player.Current.Title</MudText>
                 <MudText Typo="Typo.caption" Class="mud-text-secondary text-truncate">
-                    @if (Player.CurrentChapter is not null)
+                    @if (Player.CurrentChapter != null)
                     {
                         <span>@Player.CurrentChapter.Title (@(Player.CurrentChapterIndex + 1)/@Player.Current.Chapters.Count)</span>
                     }
@@ -66,6 +66,24 @@
                                Disabled="!Player.HasNext" OnClick="Next"
                                Color="Color.Primary" Size="Size.Large" />
             </MudTooltip>
+
+            <MudMenu Icon="@Icons.Material.Filled.Bedtime" Color="Color.Default" Size="Size.Medium" Dense="true"
+                     Label="Sleep timer" AriaLabel="Sleep timer">
+                <MudMenuItem OnClick="() => SetSleepTimerAsync(15)">15m</MudMenuItem>
+                <MudMenuItem OnClick="() => SetSleepTimerAsync(30)">30m</MudMenuItem>
+                <MudMenuItem OnClick="() => SetSleepTimerAsync(45)">45m</MudMenuItem>
+                <MudMenuItem OnClick="() => SetSleepTimerAsync(60)">60m</MudMenuItem>
+                <MudDivider />
+                <MudMenuItem Disabled="!SleepTimerIsSet" OnClick="UnsetSleepTimer">Unset</MudMenuItem>
+            </MudMenu>
+
+            @if (SleepTimerIsSet)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Color="Color.Info" Icon="@Icons.Material.Filled.Timer">
+                    @SleepTimerStatus
+                </MudChip>
+            }
         </div>
     </MudPaper>
 }
@@ -73,8 +91,14 @@
 @code {
     int? _loadedChapterId;
     DotNetObjectReference<GlobalAudioPlayer>? _selfRef;
+    CancellationTokenSource? _sleepTimerCts;
+    DateTimeOffset? _sleepTimerEndsAt;
 
-    string Src => Player.CurrentChapter is null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
+    string Src => Player.CurrentChapter == null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
+    bool SleepTimerIsSet => _sleepTimerEndsAt != null;
+    string SleepTimerStatus => _sleepTimerEndsAt == null
+        ? string.Empty
+        : FormatSleepTimerStatus(_sleepTimerEndsAt.Value - DateTimeOffset.UtcNow);
 
     protected override void OnInitialized()
     {
@@ -86,6 +110,7 @@
 
     async void OnClosed()
     {
+        CancelSleepTimer();
         await JS.InvokeVoidAsync("disposeAudioPlayer");
         await InvokeAsync(StateHasChanged);
     }
@@ -98,7 +123,7 @@
             await JS.InvokeVoidAsync("initAudioPlayer", _selfRef);
         }
 
-        if (Player.CurrentChapter is null)
+        if (Player.CurrentChapter == null)
         {
             _loadedChapterId = null;
             return;
@@ -157,9 +182,74 @@
         Player.Previous();
     }
 
+    Task SetSleepTimerAsync(int minutes)
+    {
+        CancelSleepTimer();
+
+        _sleepTimerEndsAt = DateTimeOffset.UtcNow.AddMinutes(minutes);
+        _sleepTimerCts = new CancellationTokenSource();
+        _ = RunSleepTimerAsync(_sleepTimerCts.Token);
+
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    void UnsetSleepTimer()
+    {
+        CancelSleepTimer();
+        StateHasChanged();
+    }
+
+    async Task RunSleepTimerAsync(CancellationToken cancellationToken)
+    {
+        if (_sleepTimerEndsAt == null) return;
+
+        try
+        {
+            while (_sleepTimerEndsAt != null)
+            {
+                var remaining = _sleepTimerEndsAt.Value - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero) break;
+
+                await InvokeAsync(StateHasChanged);
+                var nextTick = remaining > TimeSpan.FromSeconds(1)
+                    ? TimeSpan.FromSeconds(1)
+                    : remaining;
+                await Task.Delay(nextTick, cancellationToken);
+            }
+
+            await JS.InvokeVoidAsync("pauseAudio", "globalPlayer");
+            await SaveProgressAsync();
+            CancelSleepTimer();
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException)
+        {
+            // Timer was unset or replaced.
+        }
+    }
+
+    void CancelSleepTimer()
+    {
+        _sleepTimerCts?.Cancel();
+        _sleepTimerCts?.Dispose();
+        _sleepTimerCts = null;
+        _sleepTimerEndsAt = null;
+    }
+
+    static string FormatSleepTimerStatus(TimeSpan remaining)
+    {
+        if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+
+        var totalSeconds = (int)Math.Ceiling(remaining.TotalSeconds);
+        var minutes = totalSeconds / 60;
+        var seconds = totalSeconds % 60;
+        return $"Sleep in {minutes:D2}:{seconds:D2}";
+    }
+
     async Task SaveProgressAsync()
     {
-        if (Player.CurrentChapter is null || Player.Current is null) return;
+        if (Player.CurrentChapter == null || Player.Current == null) return;
 
         var userId = await UserIdAsync();
         if (userId <= 0) return;
@@ -178,6 +268,7 @@
 
     public void Dispose()
     {
+        CancelSleepTimer();
         Player.Changed -= OnChanged;
         Player.Closed -= OnClosed;
         _selfRef?.Dispose();
