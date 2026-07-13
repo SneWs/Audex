@@ -242,6 +242,7 @@
     bool _rescanning;
     bool _savingCustomTitle;
     string? _customTitleInput;
+    bool _bookChanged;
     string? _error;
 
     protected override Task OnInitializedAsync() => LoadBookAsync();
@@ -281,6 +282,7 @@
             if (response.IsSuccessStatusCode)
             {
                 await LoadBookAsync();
+                _bookChanged = true;
                 Snackbar.Add("Book metadata refreshed.", Severity.Success);
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -319,6 +321,7 @@
             if (response.IsSuccessStatusCode)
             {
                 await LoadBookAsync();
+                _bookChanged = true;
                 Snackbar.Add("Custom title saved.", Severity.Success);
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -354,6 +357,7 @@
             if (response.IsSuccessStatusCode)
             {
                 await LoadBookAsync();
+                _bookChanged = true;
                 Snackbar.Add("Custom title cleared.", Severity.Success);
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -377,7 +381,13 @@
         }
     }
 
-    void Close() => MudDialog.Close();
+    void Close()
+    {
+        if (_bookChanged && _book != null)
+            MudDialog.Close(DialogResult.Ok(_book));
+        else
+            MudDialog.Close();
+    }
 
     static double ProgressPercent(BookDto b) =>
         b.DurationSec <= 0 ? 0 : Math.Clamp(b.ProgressSec * 100.0 / b.DurationSec, 0, 100);

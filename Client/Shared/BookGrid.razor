@@ -174,7 +174,57 @@ else
             MaxWidth = MaxWidth.Large
         };
 
-        await DialogService.ShowAsync<BookDetailsDialog>(b.Title, parameters, options);
+        var dialog = await DialogService.ShowAsync<BookDetailsDialog>(b.Title, parameters, options);
+        var result = await dialog.Result;
+        if (result == null || result.Canceled)
+            return;
+
+        if (result.Data is BookDetailDto updated)
+            ApplyBookUpdate(updated);
+    }
+
+    void ApplyBookUpdate(BookDetailDto updated)
+    {
+        if (Books == null)
+            return;
+
+        var idx = Array.FindIndex(Books, x => x.Id == updated.Id);
+        if (idx < 0)
+            return;
+
+        Books[idx] = new BookDto
+        {
+            Id = updated.Id,
+            Title = updated.Title,
+            CustomTitle = updated.CustomTitle,
+            Subtitle = updated.Subtitle,
+            Author = updated.Author,
+            Year = updated.Year,
+            ReadBy = updated.ReadBy,
+            DurationSec = updated.DurationSec,
+            ChapterCount = updated.ChapterCount,
+            HasCover = updated.HasCover,
+            Description = updated.Description,
+            Publisher = updated.Publisher,
+            Language = updated.Language,
+            Isbn10 = updated.Isbn10,
+            Isbn13 = updated.Isbn13,
+            PageCount = updated.PageCount,
+            Rating = updated.Rating,
+            RatingCount = updated.RatingCount,
+            GoogleBooksUrl = updated.GoogleBooksUrl,
+            OpenLibraryUrl = updated.OpenLibraryUrl,
+            AddedAt = updated.AddedAt,
+            ProgressSec = updated.ProgressSec,
+            IsCompleted = updated.IsCompleted,
+            IsFavorite = updated.IsFavorite,
+            LastPlayedAt = updated.LastPlayedAt,
+            ResumeChapterId = updated.ResumeChapterId,
+            ResumePositionSec = updated.ResumePositionSec,
+            Genres = updated.Genres
+        };
+
+        StateHasChanged();
     }
 
     async Task ToggleFavoriteAsync(BookDto b)
