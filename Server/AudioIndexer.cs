@@ -202,6 +202,7 @@ public class AudioIndexer : IAudioIndexer
             book.AddedAt = DateTime.UtcNow;
         }
 
+        var previousCustomTitle = book.CustomTitle;
         var previousDbTitle = book.Title;
 
         // Reconcile chapters by FilePath so unchanged files keep their Chapter.Id
@@ -248,7 +249,7 @@ public class AudioIndexer : IAudioIndexer
         try
         {
             BookMetadataLookup.ExternalMetadata? external = null;
-            foreach (var lookupTitle in BuildLookupTitleCandidates(album, taggedTitle, firstFileNameTitle, previousDbTitle))
+            foreach (var lookupTitle in BuildLookupTitleCandidates(previousCustomTitle, album, taggedTitle, firstFileNameTitle, previousDbTitle))
             {
                 external = await _metadataLookup.LookupAsync(lookupTitle, author, ct).ConfigureAwait(false);
                 if (external != null)
@@ -323,13 +324,14 @@ public class AudioIndexer : IAudioIndexer
         await _db.SaveChangesAsync(ct)
             .ConfigureAwait(false);
 
+        var displayTitle = string.IsNullOrWhiteSpace(book.CustomTitle) ? title : book.CustomTitle;
         if (isNew)
-            await _hub.Clients.All.BookAdded(book.Id, title);
+            await _hub.Clients.All.BookAdded(book.Id, displayTitle!);
         else
-            await _hub.Clients.All.BookUpdated(book.Id, title);
+            await _hub.Clients.All.BookUpdated(book.Id, displayTitle!);
 
         _logger.LogInformation("Indexed '{Title}' ({Count} chapter(s), {Dur}s, genres: {Genres})",
-            title, scanned.Count, totalDuration,
+            displayTitle, scanned.Count, totalDuration,
             genreNames.Count > 0 ? string.Join(", ", genreNames) : "-");
     }
 
@@ -593,12 +595,14 @@ public class AudioIndexer : IAudioIndexer
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
     private static List<string> BuildLookupTitleCandidates(
+        string? customTitle,
         string? metadataAlbumTitle,
         string? metadataTrackTitle,
         string? fileNameTitle,
         string? databaseTitle)
     {
         var titles = new List<string>();
+        AddCandidateTitle(titles, customTitle);
         AddCandidateTitle(titles, metadataAlbumTitle);
         AddCandidateTitle(titles, metadataTrackTitle);
         AddCandidateTitle(titles, fileNameTitle);

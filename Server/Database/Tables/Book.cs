@@ -3,6 +3,7 @@ public class Book
 {
     public int Id { get; set; }
     public string Title { get; set; } = default!;
+    public string? CustomTitle { get; set; }
     public string? Subtitle { get; set; }
     public string Author { get; set; } = default!;
     public int? Year { get; set; }

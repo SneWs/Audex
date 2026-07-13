@@ -4,6 +4,7 @@ public class BookDto
 {
     public int Id { get; init; }
     public string Title { get; init; } = string.Empty;
+    public string? CustomTitle { get; init; }
     public string? Subtitle { get; init; }
     public string Author { get; init; } = string.Empty;
     public int? Year { get; init; }

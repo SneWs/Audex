@@ -185,7 +185,8 @@ books.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
         return new BookDto
         {
             Id = b.Id,
-            Title = b.Title,
+            Title = string.IsNullOrWhiteSpace(b.CustomTitle) ? b.Title : b.CustomTitle,
+            CustomTitle = b.CustomTitle,
             Subtitle = b.Subtitle,
             Author = b.Author,
             Year = b.Year,
@@ -257,7 +258,8 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
     return Results.Ok(new BookDetailDto
     {
         Id = b.Id,
-        Title = b.Title,
+        Title = string.IsNullOrWhiteSpace(b.CustomTitle) ? b.Title : b.CustomTitle,
+        CustomTitle = b.CustomTitle,
         Subtitle = b.Subtitle,
         Author = b.Author,
         Year = b.Year,
@@ -297,6 +299,22 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
 .RequireAuthorization()
 .WithSummary("Get a single audiobook with chapters, progress and favorite state")
 .Produces<BookDetailDto>()
+.Produces(StatusCodes.Status404NotFound);
+
+books.MapPut("/api/books/{id:int}/custom-title", async (int id, BookCustomTitleRequest req, AppDbContext db) =>
+{
+    var book = await db.Books.FirstOrDefaultAsync(b => b.Id == id);
+    if (book == null) return Results.NotFound();
+
+    book.CustomTitle = string.IsNullOrWhiteSpace(req.CustomTitle) ? null : req.CustomTitle.Trim();
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new MessageResponse("Custom title updated."));
+})
+.RequireAuthorization()
+.WithSummary("Set or clear a user-defined custom title for a book")
+.Accepts<BookCustomTitleRequest>("application/json")
+.Produces<MessageResponse>()
 .Produces(StatusCodes.Status404NotFound);
 
 books.MapPost("/api/books/rescan", (IAudioIndexer indexer, IServiceProvider sp) =>

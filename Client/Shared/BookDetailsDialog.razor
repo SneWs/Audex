@@ -94,9 +94,30 @@
 
                 <MudPaper Outlined="true" Class="pa-3">
                     <MudText Typo="Typo.subtitle2" Class="mb-2">Metadata</MudText>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-3">
+                        <MudTextField T="string" Label="Custom title" Value="@_customTitleInput"
+                                      ValueChanged="OnCustomTitleChanged" Immediate="true"
+                                      Placeholder="Set a custom display and match title"
+                                      Disabled="_loading || _savingCustomTitle"
+                                      Style="max-width:420px;" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary"
+                                   OnClick="SaveCustomTitleAsync"
+                                   Disabled="_loading || _savingCustomTitle || _book == null">
+                            @(_savingCustomTitle ? "Saving..." : "Save")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Default"
+                                   OnClick="ClearCustomTitleAsync"
+                                   Disabled="_loading || _savingCustomTitle || _book == null || string.IsNullOrWhiteSpace(_book.CustomTitle)">
+                            Clear
+                        </MudButton>
+                    </MudStack>
                     <MudSimpleTable Dense="true" Hover="false">
                         <tbody>
                             <tr><td>Book Id</td><td>@_book.Id</td></tr>
+                            @if (!string.IsNullOrWhiteSpace(_book.CustomTitle))
+                            {
+                                <tr><td>Custom title</td><td>@_book.CustomTitle</td></tr>
+                            }
                             @if (!string.IsNullOrWhiteSpace(_book.Subtitle))
                             {
                                 <tr><td>Subtitle</td><td>@_book.Subtitle</td></tr>
@@ -219,6 +240,8 @@
     BookDetailDto? _book;
     bool _loading = true;
     bool _rescanning;
+    bool _savingCustomTitle;
+    string? _customTitleInput;
     string? _error;
 
     protected override Task OnInitializedAsync() => LoadBookAsync();
@@ -232,6 +255,8 @@
             _book = await Http.GetFromJsonAsync<BookDetailDto>($"/api/books/{BookId}");
             if (_book == null)
                 _error = "Book details are unavailable.";
+            else
+                _customTitleInput = _book.CustomTitle ?? _book.Title;
         }
         catch
         {
@@ -276,6 +301,79 @@
         finally
         {
             _rescanning = false;
+        }
+    }
+
+    void OnCustomTitleChanged(string value) => _customTitleInput = value;
+
+    async Task SaveCustomTitleAsync()
+    {
+        if (_book == null)
+            return;
+
+        _savingCustomTitle = true;
+        try
+        {
+            var title = string.IsNullOrWhiteSpace(_customTitleInput) ? null : _customTitleInput.Trim();
+            var response = await Http.PutAsJsonAsync($"/api/books/{_book.Id}/custom-title", new BookCustomTitleRequest(title));
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadBookAsync();
+                Snackbar.Add("Custom title saved.", Severity.Success);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _book = null;
+                _error = "Book is no longer available in your library.";
+                Snackbar.Add("Book was not found.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Unable to save custom title.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to save custom title.", Severity.Error);
+        }
+        finally
+        {
+            _savingCustomTitle = false;
+        }
+    }
+
+    async Task ClearCustomTitleAsync()
+    {
+        if (_book == null)
+            return;
+
+        _savingCustomTitle = true;
+        try
+        {
+            var response = await Http.PutAsJsonAsync($"/api/books/{_book.Id}/custom-title", new BookCustomTitleRequest(null));
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadBookAsync();
+                Snackbar.Add("Custom title cleared.", Severity.Success);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _book = null;
+                _error = "Book is no longer available in your library.";
+                Snackbar.Add("Book was not found.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Unable to clear custom title.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to clear custom title.", Severity.Error);
+        }
+        finally
+        {
+            _savingCustomTitle = false;
         }
     }
 
