@@ -251,7 +251,7 @@ public class AudioIndexer : IAudioIndexer
             BookMetadataLookup.ExternalMetadata? external = null;
             foreach (var lookupTitle in BuildLookupTitleCandidates(previousCustomTitle, album, taggedTitle, firstFileNameTitle, previousDbTitle))
             {
-                external = await _metadataLookup.LookupAsync(lookupTitle, author, ct).ConfigureAwait(false);
+                external = await _metadataLookup.LookupAsync(lookupTitle, author, year, ct).ConfigureAwait(false);
                 if (external != null)
                     break;
             }

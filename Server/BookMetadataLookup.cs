@@ -11,11 +11,13 @@ namespace Grenis.AudioBooks.Server;
 public class BookMetadataLookup
 {
     private readonly HttpClient _http;
+    private readonly IAudibleBookScraper _audibleBookScraper;
     private readonly ILogger<BookMetadataLookup> _logger;
 
-    public BookMetadataLookup(HttpClient http, ILogger<BookMetadataLookup> logger)
+    public BookMetadataLookup(HttpClient http, IAudibleBookScraper audibleBookScraper, ILogger<BookMetadataLookup> logger)
     {
         _http = http;
+        _audibleBookScraper = audibleBookScraper;
         _logger = logger;
     }
 
@@ -24,7 +26,7 @@ public class BookMetadataLookup
     private static DateTime _lastRequest = DateTime.MinValue;
     private const int MinDelayMs = 1200; // ~50 requests/minute
 
-    public async Task<ExternalMetadata?> LookupAsync(string title, string? author, CancellationToken ct = default)
+    public async Task<ExternalMetadata?> LookupAsync(string title, string? author, int? year = null, CancellationToken ct = default)
     {
         await _throttle.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -36,6 +38,7 @@ public class BookMetadataLookup
             // Try Google Books first (richer data), fall back to Open Library.
             var result = await TryGoogleBooksAsync(title, author, ct).ConfigureAwait(false);
             var olResult = await TryOpenLibraryAsync(title, author, ct).ConfigureAwait(false);
+            var audibleResult = await _audibleBookScraper.ScrapeAsync(title, author, year, ct).ConfigureAwait(false);
 
             if (result is null)
             {
@@ -62,6 +65,24 @@ public class BookMetadataLookup
                 // Store the Open Library URL separately.
                 if (result.Source == "GoogleBooks" && olResult.InfoUrl is not null)
                     result.OpenLibraryInfoUrl = olResult.InfoUrl;
+            }
+
+            if (result == null && audibleResult != null)
+            {
+                result = new ExternalMetadata
+                {
+                    Source = "Audible",
+                    CoverUrl = audibleResult.CoverUrl,
+                    PublishedDate = audibleResult.Year?.ToString(),
+                    InfoUrl = audibleResult.AudibleUrl
+                };
+            }
+            else if (result != null && audibleResult != null)
+            {
+                result.CoverUrl ??= audibleResult.CoverUrl;
+                if (string.IsNullOrWhiteSpace(result.PublishedDate) && audibleResult.Year != null)
+                    result.PublishedDate = audibleResult.Year.Value.ToString();
+                result.AudibleInfoUrl ??= audibleResult.AudibleUrl;
             }
 
             _lastRequest = DateTime.UtcNow;
@@ -327,6 +348,7 @@ public class BookMetadataLookup
         public int? RatingCount { get; set; }
         public string? InfoUrl { get; set; }
         public string? OpenLibraryInfoUrl { get; set; }
+        public string? AudibleInfoUrl { get; set; }
     }
 
     // ── JSON models ──────────────────────────────────────────────────

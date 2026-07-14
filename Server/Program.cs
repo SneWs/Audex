@@ -68,6 +68,11 @@ builder.Services.AddHttpClient<BookMetadataLookup>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0");
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddHttpClient<IAudibleBookScraper, AudibleBookScraper>(client =>
+{
+    client.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0 (+https://audex.local)");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IAudioIndexer, AudioIndexer>();
 builder.Services.AddHostedService<AudioIndexBackgroundService>();
