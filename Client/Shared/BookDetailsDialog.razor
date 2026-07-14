@@ -149,17 +149,11 @@
                     </MudSimpleTable>
                 </MudPaper>
 
-                @if (!string.IsNullOrWhiteSpace(_book.GoogleBooksUrl) || !string.IsNullOrWhiteSpace(_book.OpenLibraryUrl))
+                @if (!string.IsNullOrWhiteSpace(_book.OpenLibraryUrl))
                 {
                     <MudPaper Outlined="true" Class="pa-3">
                         <MudText Typo="Typo.subtitle2" Class="mb-2">External Links</MudText>
                         <div class="d-flex flex-wrap" style="gap:8px;">
-                            @if (!string.IsNullOrWhiteSpace(_book.GoogleBooksUrl))
-                            {
-                                <MudButton Href="@_book.GoogleBooksUrl" Target="_blank" Variant="Variant.Outlined"
-                                           Size="Size.Small" StartIcon="@Icons.Material.Filled.MenuBook"
-                                           Color="Color.Primary">Google Books</MudButton>
-                            }
                             @if (!string.IsNullOrWhiteSpace(_book.OpenLibraryUrl))
                             {
                                 <MudButton Href="@_book.OpenLibraryUrl" Target="_blank" Variant="Variant.Outlined"

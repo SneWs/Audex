@@ -20,7 +20,6 @@ public class BookDto
     public int? PageCount { get; init; }
     public double? Rating { get; init; }
     public int? RatingCount { get; init; }
-    public string? GoogleBooksUrl { get; init; }
     public string? OpenLibraryUrl { get; init; }
     public DateTime AddedAt { get; init; }
     public int ProgressSec { get; init; }

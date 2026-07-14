@@ -249,11 +249,32 @@ public class AudioIndexer : IAudioIndexer
         try
         {
             BookMetadataLookup.ExternalMetadata? external = null;
-            foreach (var lookupTitle in BuildLookupTitleCandidates(previousCustomTitle, album, taggedTitle, firstFileNameTitle, previousDbTitle))
+            var lookupCandidates = BuildLookupTitleCandidates(previousCustomTitle, album, taggedTitle, firstFileNameTitle, previousDbTitle);
+            for (var i = 0; i < lookupCandidates.Count; i++)
             {
-                external = await _metadataLookup.LookupAsync(lookupTitle, author, year, ct).ConfigureAwait(false);
+                var candidate = lookupCandidates[i];
+                _logger.LogInformation(
+                    "Metadata lookup attempt {Attempt}/{Total} for '{BookTitle}': source={Source}, title='{LookupTitle}', author='{Author}', year={Year}",
+                    i + 1,
+                    lookupCandidates.Count,
+                    title,
+                    candidate.Source,
+                    candidate.Title,
+                    author,
+                    year);
+
+                external = await _metadataLookup.LookupAsync(candidate.Title, author, year, ct).ConfigureAwait(false);
                 if (external != null)
+                {
+                    _logger.LogInformation(
+                        "Metadata lookup matched on attempt {Attempt}/{Total} for '{BookTitle}' using source={Source} and title='{LookupTitle}'",
+                        i + 1,
+                        lookupCandidates.Count,
+                        title,
+                        candidate.Source,
+                        candidate.Title);
                     break;
+                }
             }
 
             if (external is not null)
@@ -296,8 +317,6 @@ public class AudioIndexer : IAudioIndexer
                     && extYear > 0)
                     book.Year = extYear;
 
-                if (external.Source == "GoogleBooks" && string.IsNullOrWhiteSpace(book.GoogleBooksUrl))
-                    book.GoogleBooksUrl = external.InfoUrl;
                 if (external.Source == "OpenLibrary" && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
                     book.OpenLibraryUrl = external.InfoUrl;
                 if (!string.IsNullOrWhiteSpace(external.OpenLibraryInfoUrl) && string.IsNullOrWhiteSpace(book.OpenLibraryUrl))
@@ -594,32 +613,32 @@ public class AudioIndexer : IAudioIndexer
 
     private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
 
-    private static List<string> BuildLookupTitleCandidates(
+    private static List<LookupTitleCandidate> BuildLookupTitleCandidates(
         string? customTitle,
         string? metadataAlbumTitle,
         string? metadataTrackTitle,
         string? fileNameTitle,
         string? databaseTitle)
     {
-        var titles = new List<string>();
-        AddCandidateTitle(titles, customTitle);
-        AddCandidateTitle(titles, metadataAlbumTitle);
-        AddCandidateTitle(titles, metadataTrackTitle);
-        AddCandidateTitle(titles, fileNameTitle);
-        AddCandidateTitle(titles, databaseTitle);
+        var titles = new List<LookupTitleCandidate>();
+        AddCandidateTitle(titles, "custom", customTitle);
+        AddCandidateTitle(titles, "metadata-album", metadataAlbumTitle);
+        AddCandidateTitle(titles, "metadata-track", metadataTrackTitle);
+        AddCandidateTitle(titles, "filename", fileNameTitle);
+        AddCandidateTitle(titles, "database", databaseTitle);
         return titles;
     }
 
-    private static void AddCandidateTitle(List<string> titles, string? candidate)
+    private static void AddCandidateTitle(List<LookupTitleCandidate> titles, string source, string? candidate)
     {
         if (string.IsNullOrWhiteSpace(candidate))
             return;
 
         var normalized = candidate.Trim();
-        if (titles.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        if (titles.Any(t => string.Equals(t.Title, normalized, StringComparison.OrdinalIgnoreCase)))
             return;
 
-        titles.Add(normalized);
+        titles.Add(new LookupTitleCandidate(source, normalized));
     }
 
     private static string? FirstNonEmpty(string[]? values)
@@ -631,6 +650,7 @@ public class AudioIndexer : IAudioIndexer
         values is { Length: > 0 } ? string.Join(", ", values) : "-";
 
     private record ScannedChapter(string Title, string FilePath, int DurationSec, int TrackNumber);
+    private record LookupTitleCandidate(string Source, string Title);
 
     private class Metadata
     {

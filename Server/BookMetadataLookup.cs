@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace Grenis.AudioBooks.Server;
 
 /// <summary>
-/// Looks up book metadata from external sources (Google Books, Open Library)
+/// Looks up book metadata from external sources (Audible, Open Library)
 /// to fill in missing information not available in local audio file tags.
 /// </summary>
 public class BookMetadataLookup
@@ -35,18 +35,31 @@ public class BookMetadataLookup
             if (elapsed < MinDelayMs)
                 await Task.Delay(MinDelayMs - (int)elapsed, ct).ConfigureAwait(false);
 
-            // Try Google Books first (richer data), fall back to Open Library.
-            var result = await TryGoogleBooksAsync(title, author, ct).ConfigureAwait(false);
-            var olResult = await TryOpenLibraryAsync(title, author, ct).ConfigureAwait(false);
             var audibleResult = await _audibleBookScraper.ScrapeAsync(title, author, year, ct).ConfigureAwait(false);
+            var olResult = await TryOpenLibraryAsync(title, author, ct).ConfigureAwait(false);
 
-            if (result is null)
+            ExternalMetadata? result = null;
+
+            // Prefer Audible as the primary source.
+            if (audibleResult != null)
+            {
+                result = new ExternalMetadata
+                {
+                    Source = "Audible",
+                    CoverUrl = audibleResult.CoverUrl,
+                    PublishedDate = audibleResult.Year?.ToString(),
+                    InfoUrl = audibleResult.AudibleUrl,
+                    AudibleInfoUrl = audibleResult.AudibleUrl
+                };
+            }
+
+            if (result == null)
             {
                 result = olResult;
             }
             else if (olResult is not null)
             {
-                // Supplement Google Books data with Open Library data (ratings, description, cover).
+                // Supplement Audible data with Open Library data where available.
                 result.Rating ??= olResult.Rating;
                 result.RatingCount ??= olResult.RatingCount;
                 result.Description ??= olResult.Description;
@@ -61,28 +74,9 @@ public class BookMetadataLookup
                             result.Categories.Add(cat);
                     }
                 }
-                result.InfoUrl ??= olResult.InfoUrl;
                 // Store the Open Library URL separately.
-                if (result.Source == "GoogleBooks" && olResult.InfoUrl is not null)
+                if (olResult.InfoUrl is not null)
                     result.OpenLibraryInfoUrl = olResult.InfoUrl;
-            }
-
-            if (result == null && audibleResult != null)
-            {
-                result = new ExternalMetadata
-                {
-                    Source = "Audible",
-                    CoverUrl = audibleResult.CoverUrl,
-                    PublishedDate = audibleResult.Year?.ToString(),
-                    InfoUrl = audibleResult.AudibleUrl
-                };
-            }
-            else if (result != null && audibleResult != null)
-            {
-                result.CoverUrl ??= audibleResult.CoverUrl;
-                if (string.IsNullOrWhiteSpace(result.PublishedDate) && audibleResult.Year != null)
-                    result.PublishedDate = audibleResult.Year.Value.ToString();
-                result.AudibleInfoUrl ??= audibleResult.AudibleUrl;
             }
 
             _lastRequest = DateTime.UtcNow;
@@ -99,103 +93,6 @@ public class BookMetadataLookup
         {
             _throttle.Release();
         }
-    }
-
-    // ── Google Books ─────────────────────────────────────────────────
-
-    private async Task<ExternalMetadata?> TryGoogleBooksAsync(string title, string? author, CancellationToken ct)
-    {
-        try
-        {
-            // Try strict search first, then broader if no results.
-            var result = await GoogleBooksSearchAsync(title, author, strict: true, ct).ConfigureAwait(false);
-            if (result is not null) return result;
-
-            return await GoogleBooksSearchAsync(title, author, strict: false, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Google Books lookup failed for '{Title}'", title);
-            return null;
-        }
-    }
-
-    private async Task<ExternalMetadata?> GoogleBooksSearchAsync(string title, string? author, bool strict, CancellationToken ct)
-    {
-        string q;
-        if (strict)
-        {
-            q = $"intitle:{Uri.EscapeDataString(title)}";
-            if (!string.IsNullOrWhiteSpace(author) && author != "Unknown")
-                q += $"+inauthor:{Uri.EscapeDataString(author)}";
-        }
-        else
-        {
-            // Broader: just use the title and author as free text.
-            var terms = title;
-            if (!string.IsNullOrWhiteSpace(author) && author != "Unknown")
-                terms += " " + author;
-            q = Uri.EscapeDataString(terms);
-        }
-
-        var url = $"https://www.googleapis.com/books/v1/volumes?q={q}&maxResults=3";
-        var response = await _http.GetAsync(url, ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning("Google Books returned {StatusCode} for '{Title}' (strict={Strict})", (int)response.StatusCode, title, strict);
-            return null;
-        }
-
-        var data = await response.Content.ReadFromJsonAsync<GoogleBooksResponse>(ct).ConfigureAwait(false);
-        if (data?.Items is null || data.Items.Count == 0) return null;
-
-        // Prefer the result with the most data (rating, description, cover).
-        var item = data.Items
-            .OrderByDescending(i => i.VolumeInfo?.AverageRating.HasValue == true ? 1 : 0)
-            .ThenByDescending(i => !string.IsNullOrWhiteSpace(i.VolumeInfo?.Description) ? 1 : 0)
-            .ThenByDescending(i => i.VolumeInfo?.ImageLinks is not null ? 1 : 0)
-            .First();
-        var vol = item.VolumeInfo;
-        if (vol is null) return null;
-
-        // Prefer larger images: large > medium > small > thumbnail > smallThumbnail.
-        var coverUrl = vol.ImageLinks?.Large
-                    ?? vol.ImageLinks?.Medium
-                    ?? vol.ImageLinks?.Small
-                    ?? vol.ImageLinks?.Thumbnail
-                    ?? vol.ImageLinks?.SmallThumbnail;
-        // Google serves http URLs; upgrade to https.
-        if (coverUrl is not null)
-            coverUrl = coverUrl.Replace("http://", "https://");
-
-        // Extract ISBNs.
-        string? isbn10 = null, isbn13 = null;
-        if (vol.IndustryIdentifiers is not null)
-        {
-            foreach (var id in vol.IndustryIdentifiers)
-            {
-                if (id.Type == "ISBN_10") isbn10 = id.Identifier;
-                else if (id.Type == "ISBN_13") isbn13 = id.Identifier;
-            }
-        }
-
-        return new ExternalMetadata
-        {
-            Source = "GoogleBooks",
-            Description = vol.Description,
-            Subtitle = vol.Subtitle,
-            Categories = vol.Categories?.ToList(),
-            CoverUrl = coverUrl,
-            Publisher = vol.Publisher,
-            PublishedDate = vol.PublishedDate,
-            Language = vol.Language,
-            Isbn10 = isbn10,
-            Isbn13 = isbn13,
-            PageCount = vol.PageCount,
-            Rating = vol.AverageRating,
-            RatingCount = vol.RatingsCount,
-            InfoUrl = vol.InfoLink
-        };
     }
 
     // ── Open Library ─────────────────────────────────────────────────
@@ -352,87 +249,6 @@ public class BookMetadataLookup
     }
 
     // ── JSON models ──────────────────────────────────────────────────
-
-    private class GoogleBooksResponse
-    {
-        [JsonPropertyName("items")]
-        public List<GoogleBooksItem>? Items { get; set; }
-    }
-
-    private class GoogleBooksItem
-    {
-        [JsonPropertyName("volumeInfo")]
-        public GoogleBooksVolumeInfo? VolumeInfo { get; set; }
-    }
-
-    private class GoogleBooksVolumeInfo
-    {
-        [JsonPropertyName("title")]
-        public string? Title { get; set; }
-
-        [JsonPropertyName("subtitle")]
-        public string? Subtitle { get; set; }
-
-        [JsonPropertyName("description")]
-        public string? Description { get; set; }
-
-        [JsonPropertyName("categories")]
-        public string[]? Categories { get; set; }
-
-        [JsonPropertyName("imageLinks")]
-        public GoogleBooksImageLinks? ImageLinks { get; set; }
-
-        [JsonPropertyName("publisher")]
-        public string? Publisher { get; set; }
-
-        [JsonPropertyName("publishedDate")]
-        public string? PublishedDate { get; set; }
-
-        [JsonPropertyName("language")]
-        public string? Language { get; set; }
-
-        [JsonPropertyName("industryIdentifiers")]
-        public GoogleBooksIdentifier[]? IndustryIdentifiers { get; set; }
-
-        [JsonPropertyName("pageCount")]
-        public int? PageCount { get; set; }
-
-        [JsonPropertyName("averageRating")]
-        public double? AverageRating { get; set; }
-
-        [JsonPropertyName("ratingsCount")]
-        public int? RatingsCount { get; set; }
-
-        [JsonPropertyName("infoLink")]
-        public string? InfoLink { get; set; }
-    }
-
-    private class GoogleBooksIdentifier
-    {
-        [JsonPropertyName("type")]
-        public string? Type { get; set; }
-
-        [JsonPropertyName("identifier")]
-        public string? Identifier { get; set; }
-    }
-
-    private class GoogleBooksImageLinks
-    {
-        [JsonPropertyName("smallThumbnail")]
-        public string? SmallThumbnail { get; set; }
-
-        [JsonPropertyName("thumbnail")]
-        public string? Thumbnail { get; set; }
-
-        [JsonPropertyName("small")]
-        public string? Small { get; set; }
-
-        [JsonPropertyName("medium")]
-        public string? Medium { get; set; }
-
-        [JsonPropertyName("large")]
-        public string? Large { get; set; }
-    }
 
     private class OpenLibrarySearchResponse
     {

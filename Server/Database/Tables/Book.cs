@@ -12,7 +12,7 @@ public class Book
     public int DurationSec { get; set; }               // total across all chapters
     public int ChapterCount { get; set; }
     public bool HasCover { get; set; }
-    public string? CoverUrl { get; set; }              // external cover image URL (from Google Books / Open Library)
+    public string? CoverUrl { get; set; }              // external cover image URL
     public string? Description { get; set; }
     public string? Publisher { get; set; }
     public string? Language { get; set; }
@@ -21,7 +21,6 @@ public class Book
     public int? PageCount { get; set; }
     public double? Rating { get; set; }
     public int? RatingCount { get; set; }
-    public string? GoogleBooksUrl { get; set; }
     public string? OpenLibraryUrl { get; set; }
     public DateTime AddedAt { get; set; }
 
