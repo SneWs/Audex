@@ -55,6 +55,7 @@ window.loadPlaySeek = function (id, src, seconds) {
     el.onplay = function () {
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
         _updatePositionState();
+        if (_dotNetRef) _dotNetRef.invokeMethodAsync('OnJsPlay');
     };
     el.onended = function () {
         if (_dotNetRef) _dotNetRef.invokeMethodAsync('OnJsEnded');

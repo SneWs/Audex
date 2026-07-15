@@ -158,7 +158,18 @@
 
     // Called from JS audio element event handlers
     [JSInvokable]
-    public async Task OnJsPause() => await SaveProgressAsync();
+    public async Task OnJsPause()
+    {
+        Player.SetPlayingState(false);
+        await SaveProgressAsync();
+    }
+
+    [JSInvokable]
+    public Task OnJsPlay()
+    {
+        Player.SetPlayingState(true);
+        return Task.CompletedTask;
+    }
 
     [JSInvokable]
     public async Task OnJsEnded()

@@ -11,6 +11,7 @@ public class AudioPlayerService
 
     public BookDetailDto? Current { get; private set; }
     public int CurrentChapterIndex { get; private set; }
+    public bool IsPlaying { get; private set; }
 
     public ChapterDto? CurrentChapter =>
         Current is null ? null :
@@ -31,6 +32,7 @@ public class AudioPlayerService
         Current = await _http.GetFromJsonAsync<BookDetailDto>($"/api/books/{bookId}");
         CurrentChapterIndex = 0;
         PendingSeekSec = 0;
+        IsPlaying = true;
 
         if (Current is not null && Current.ResumeChapterId is int resumeId && !Current.IsCompleted)
         {
@@ -56,6 +58,7 @@ public class AudioPlayerService
     {
         if (Current is null || index < 0 || index >= Current.Chapters.Count) return;
         CurrentChapterIndex = index;
+        IsPlaying = true;
         Changed?.Invoke();
     }
 
@@ -63,6 +66,7 @@ public class AudioPlayerService
     {
         if (!HasNext) return false;
         CurrentChapterIndex++;
+        IsPlaying = true;
         Changed?.Invoke();
         return true;
     }
@@ -71,14 +75,25 @@ public class AudioPlayerService
     {
         if (!HasPrevious) return false;
         CurrentChapterIndex--;
+        IsPlaying = true;
         Changed?.Invoke();
         return true;
+    }
+
+    public void SetPlayingState(bool isPlaying)
+    {
+        if (Current == null || IsPlaying == isPlaying)
+            return;
+
+        IsPlaying = isPlaying;
+        Changed?.Invoke();
     }
 
     public void Close()
     {
         Current = null;
         CurrentChapterIndex = 0;
+        IsPlaying = false;
         Closed?.Invoke();
         Changed?.Invoke();
     }

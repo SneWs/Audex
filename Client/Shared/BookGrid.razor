@@ -175,7 +175,7 @@ else
 
     void OnPlayerChanged() => InvokeAsync(StateHasChanged);
 
-    bool IsBookPlaying(BookDto b) => Player.Current != null && Player.Current.Id == b.Id;
+    bool IsBookPlaying(BookDto b) => Player.Current != null && Player.Current.Id == b.Id && Player.IsPlaying;
 
     async Task PlayAsync(BookDto b) => await Player.PlayAsync(b.Id);
 
