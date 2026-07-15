@@ -1,4 +1,5 @@
 @using Grenis.AudioBooks.Core
+@implements IDisposable
 @inject AudioPlayerService Player
 @inject HttpClient Http
 @inject IDialogService DialogService
@@ -131,16 +132,24 @@ else
                         @if (b.IsStarted && !b.IsCompleted)
                         {
                             <span @onclick:stopPropagation="true">
-                                <MudButton StartIcon="@Icons.Material.Filled.PlayCircleFilled" Color="Color.Primary"
-                                           Variant="Variant.Filled" OnClick="() => PlayAsync(b)">Continue</MudButton>
+                                <MudButton StartIcon="@(IsBookPlaying(b) ? Icons.Material.Filled.GraphicEq : Icons.Material.Filled.PlayCircleFilled)"
+                                           Color="Color.Primary"
+                                           Variant="Variant.Filled"
+                                           Disabled="IsBookPlaying(b)"
+                                           OnClick="() => PlayAsync(b)">
+                                    @(IsBookPlaying(b) ? "Playing" : "Continue")
+                                </MudButton>
                             </span>
                         }
                         else
                         {
                             <span @onclick:stopPropagation="true">
-                                <MudButton StartIcon="@Icons.Material.Filled.PlayArrow" Color="Color.Primary"
-                                           Variant="Variant.Filled" OnClick="() => PlayAsync(b)">
-                                    @(b.IsCompleted ? "Play again" : "Play")
+                                <MudButton StartIcon="@(IsBookPlaying(b) ? Icons.Material.Filled.GraphicEq : Icons.Material.Filled.PlayArrow)"
+                                           Color="Color.Primary"
+                                           Variant="Variant.Filled"
+                                           Disabled="IsBookPlaying(b)"
+                                           OnClick="() => PlayAsync(b)">
+                                    @(IsBookPlaying(b) ? "Playing" : (b.IsCompleted ? "Play again" : "Play"))
                                 </MudButton>
                             </span>
                         }
@@ -157,6 +166,16 @@ else
     [Parameter] public string EmptyText { get; set; } = "";
     [Parameter] public string EmptyIcon { get; set; } = Icons.Material.Filled.LibraryBooks;
     [Parameter] public EventCallback<BookDto> OnFavoriteChanged { get; set; }
+
+    protected override void OnInitialized()
+    {
+        Player.Changed += OnPlayerChanged;
+        Player.Closed += OnPlayerChanged;
+    }
+
+    void OnPlayerChanged() => InvokeAsync(StateHasChanged);
+
+    bool IsBookPlaying(BookDto b) => Player.Current != null && Player.Current.Id == b.Id;
 
     async Task PlayAsync(BookDto b) => await Player.PlayAsync(b.Id);
 
@@ -257,5 +276,11 @@ else
     {
         var t = TimeSpan.FromSeconds(seconds);
         return t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : $"{t.Minutes}m {t.Seconds}s";
+    }
+
+    public void Dispose()
+    {
+        Player.Changed -= OnPlayerChanged;
+        Player.Closed -= OnPlayerChanged;
     }
 }
