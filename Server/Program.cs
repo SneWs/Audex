@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Grenis.AudioBooks.Core;
 using Grenis.AudioBooks.Server;
 using Grenis.AudioBooks.Server.Database;
 using Grenis.AudioBooks.Server.Database.Tables;
@@ -9,7 +8,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,21 +19,6 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 var settings = builder.Configuration.GetSection("AudiobookSettings").Get<AudiobookSettings>()
     ?? throw new Exception("AudiobookSettings missing");
 builder.Services.AddSingleton(Options.Create(settings));
-
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!));
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = key
-        };
-    });
-builder.Services.AddAuthorization();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -63,6 +46,21 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"]!));
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = key
+        };
+    });
+builder.Services.AddAuthorization();
+
 builder.Services.AddHttpClient<BookMetadataLookup>(client =>
 {
     client.DefaultRequestHeaders.Add("User-Agent", "Audex/1.0");
@@ -88,18 +86,18 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-app.UseCors();
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapHub<LibraryHub>("/hubs/library");
-
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
     options.SwaggerEndpoint("/swagger/v1/swagger.json", "Audiobook Library API v1");
     options.DocumentTitle = "Audiobook Library API";
 });
+
+app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapHub<LibraryHub>("/hubs/library");
 
 var auth = app.MapGroup("").WithTags("Authentication");
 var books = app.MapGroup("").WithTags("Books");
