@@ -95,6 +95,25 @@
     DateTimeOffset? _sleepTimerEndsAt;
 
     string Src => Player.CurrentChapter == null ? string.Empty : $"/api/chapters/{Player.CurrentChapter.Id}/audio";
+    string DisplayBookTitle => string.IsNullOrWhiteSpace(Player.Current?.CustomTitle)
+        ? Player.Current?.Title ?? string.Empty
+        : Player.Current.CustomTitle!;
+    string DisplayArtist
+    {
+        get
+        {
+            var author = Player.Current?.Author?.Trim() ?? string.Empty;
+            var narrator = Player.Current?.ReadBy?.Trim() ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(author) && !string.IsNullOrWhiteSpace(narrator))
+                return $"{author} · Read by {narrator}";
+
+            if (!string.IsNullOrWhiteSpace(author))
+                return author;
+
+            return string.IsNullOrWhiteSpace(narrator) ? string.Empty : $"Read by {narrator}";
+        }
+    }
     bool SleepTimerIsSet => _sleepTimerEndsAt != null;
     string SleepTimerStatus => _sleepTimerEndsAt == null
         ? string.Empty
@@ -135,9 +154,9 @@
             var seek = Player.ConsumePendingSeek();
             await JS.InvokeVoidAsync("loadPlaySeek", "globalPlayer", Src, seek);
             await JS.InvokeVoidAsync("updateMediaSession",
-                Player.Current?.Title ?? "",
                 Player.CurrentChapter.Title,
-                Player.Current?.Title ?? "");
+                DisplayArtist,
+                DisplayBookTitle);
         }
     }
 
@@ -145,14 +164,14 @@
     [JSInvokable]
     public async Task MediaNext()
     {
-        await SaveProgressAsync();
+        await TrySaveProgressAsync();
         Player.Next();
     }
 
     [JSInvokable]
     public async Task MediaPrevious()
     {
-        await SaveProgressAsync();
+        await TrySaveProgressAsync();
         Player.Previous();
     }
 
@@ -161,7 +180,7 @@
     public async Task OnJsPause()
     {
         Player.SetPlayingState(false);
-        await SaveProgressAsync();
+        await TrySaveProgressAsync();
     }
 
     [JSInvokable]
@@ -174,22 +193,25 @@
     [JSInvokable]
     public async Task OnJsEnded()
     {
-        await SaveProgressAsync();
-        Player.Next();
+        await TrySaveProgressAsync();
+        if (!Player.Next())
+        {
+            Player.SetPlayingState(false);
+        }
     }
 
     [JSInvokable]
-    public async Task OnJsTimeUpdate() => await SaveProgressAsync();
+    public async Task OnJsTimeUpdate() => await TrySaveProgressAsync();
 
     async Task Next()
     {
-        await SaveProgressAsync();
+        await TrySaveProgressAsync();
         Player.Next();
     }
 
     async Task Previous()
     {
-        await SaveProgressAsync();
+        await TrySaveProgressAsync();
         Player.Previous();
     }
 
@@ -230,7 +252,7 @@
             }
 
             await JS.InvokeVoidAsync("pauseAudio", "globalPlayer");
-            await SaveProgressAsync();
+            await TrySaveProgressAsync();
             CancelSleepTimer();
             await InvokeAsync(StateHasChanged);
         }
@@ -269,6 +291,18 @@
 
         await Http.PostAsJsonAsync($"/api/users/{userId}/progress",
             new { BookId = Player.Current.Id, ChapterId = Player.CurrentChapter.Id, PositionSec = (int)current });
+    }
+
+    async Task TrySaveProgressAsync()
+    {
+        try
+        {
+            await SaveProgressAsync();
+        }
+        catch
+        {
+            // Ignore transient save failures so playback controls remain responsive.
+        }
     }
 
     async Task<int> UserIdAsync()
