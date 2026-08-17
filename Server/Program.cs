@@ -89,7 +89,7 @@ using (var scope = app.Services.CreateScope())
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Audiobook Library API v1");
+    options.SwaggerEndpoint("v1/swagger.json", "Audiobook Library API v1");
     options.DocumentTitle = "Audiobook Library API";
 });
 
