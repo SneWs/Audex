@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String, val title: String = "", val icon: ImageVector? = null) {
+    object ServerSettings : Screen("server_settings")
     object Login : Screen("login")
     object Library : Screen("library", "Library", Icons.AutoMirrored.Filled.LibraryBooks)
     object Recents : Screen("recents", "Recents", Icons.Default.NewReleases)
@@ -16,8 +17,9 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     }
     object Player : Screen("player")
     object Search : Screen("search", "Search", Icons.Default.Search)
+    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 
     object NavItems {
-        val bottomNavItems = listOf(Library, Recents, Continue, Favorites, Search)
+        val bottomNavItems = listOf(Library, Recents, Continue, Favorites, Search, Settings)
     }
 }

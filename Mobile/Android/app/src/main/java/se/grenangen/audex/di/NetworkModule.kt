@@ -11,18 +11,18 @@ import io.ktor.client.plugins.auth.*
 import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
+import io.ktor.client.plugins.observer.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.local.TokenManager
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-
-    private const val BASE_URL = "https://books.grenangen.se/"
 
     @Provides
     @Singleton
@@ -34,11 +34,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(json: Json, tokenManager: TokenManager): HttpClient {
+    fun provideHttpClient(json: Json, tokenManager: TokenManager, settingsManager: SettingsManager): HttpClient {
         return HttpClient(OkHttp) {
-            defaultRequest {
-                url(BASE_URL)
-            }
             install(ContentNegotiation) {
                 json(json)
             }
@@ -57,11 +54,23 @@ object NetworkModule {
                     }
                     sendWithoutRequest { request ->
                         val path = request.url.encodedPath
-                        (path.startsWith("/api") || path.startsWith("api")) && 
-                        !path.contains("api/login") &&
-                        !path.contains("api/register")
+                        !path.endsWith("/login") && !path.endsWith("/register")
                     }
                 }
+            }
+        }.also { client ->
+            client.plugin(HttpSend).intercept { request ->
+                val serverUri = settingsManager.getServerUri()
+                if (serverUri != null && (request.url.host.isEmpty() || request.url.host == "localhost")) {
+                    val baseUrl = Url(serverUri)
+                    val requestPath = request.url.encodedPath.removePrefix("/")
+                    
+                    request.url.takeFrom(baseUrl)
+                    
+                    val basePath = baseUrl.encodedPath.removeSuffix("/")
+                    request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
+                }
+                execute(request)
             }
         }
     }

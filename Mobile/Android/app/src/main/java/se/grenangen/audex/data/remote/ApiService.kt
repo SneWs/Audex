@@ -13,26 +13,26 @@ class ApiService @Inject constructor(
     private val client: HttpClient
 ) {
     suspend fun login(request: LoginRequest): AuthResponse =
-        client.post("api/login") {
+        client.post("login") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
 
     suspend fun getBooks(): List<BookDto> =
-        client.get("api/books").body()
+        client.get("books").body()
 
     suspend fun getBook(id: Int): BookDetailDto =
-        client.get("api/books/$id").body()
+        client.get("books/$id").body()
 
     suspend fun updateProgress(userId: String, progress: ProgressDto) =
-        client.post("api/users/$userId/progress") {
+        client.post("users/$userId/progress") {
             contentType(ContentType.Application.Json)
             setBody(progress)
         }
 
     suspend fun favoriteBook(id: Int) =
-        client.put("api/books/$id/favorite")
+        client.put("books/$id/favorite")
 
     suspend fun unfavoriteBook(id: Int) =
-        client.delete("api/books/$id/favorite")
+        client.delete("books/$id/favorite")
 }

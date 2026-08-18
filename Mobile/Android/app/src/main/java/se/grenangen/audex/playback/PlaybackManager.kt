@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.model.BookDetailDto
 import se.grenangen.audex.data.model.ProgressDto
 import se.grenangen.audex.data.repository.AuthRepository
@@ -28,7 +29,8 @@ import javax.inject.Singleton
 class PlaybackManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bookRepository: BookRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val settingsManager: SettingsManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var lastSyncTime = 0L
@@ -128,7 +130,7 @@ class PlaybackManager @Inject constructor(
 
             MediaItem.Builder()
                 .setMediaId(chapter.id.toString())
-                .setUri("https://books.grenangen.se/api/chapters/${chapter.id}/audio")
+                .setUri("${settingsManager.getServerUri()}chapters/${chapter.id}/audio")
                 .setMediaMetadata(metadata)
                 .build()
         }

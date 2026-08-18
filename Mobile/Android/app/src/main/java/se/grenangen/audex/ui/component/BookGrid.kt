@@ -15,6 +15,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import se.grenangen.audex.data.model.BookDto
+import se.grenangen.audex.ui.composition.LocalServerUri
 import se.grenangen.audex.util.TimeUtils
 
 @Composable
@@ -51,6 +52,7 @@ fun BookItem(
     onClick: () -> Unit, 
     onPlayClick: () -> Unit
 ) {
+    val serverUri = LocalServerUri.current
     Card(
         modifier = Modifier
             .padding(8.dp)
@@ -59,7 +61,7 @@ fun BookItem(
         Column {
             Box(modifier = Modifier.height(200.dp)) {
                 AsyncImage(
-                    model = "https://books.grenangen.se/api/books/${book.id}/cover",
+                    model = "${serverUri}books/${book.id}/cover",
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

@@ -6,6 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -13,7 +15,9 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
+import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.repository.AuthRepository
+import se.grenangen.audex.ui.composition.LocalServerUri
 import se.grenangen.audex.playback.PlaybackManager
 import se.grenangen.audex.ui.component.MiniPlayer
 import se.grenangen.audex.ui.navigation.AudexNavGraph
@@ -28,21 +32,26 @@ class MainActivity : ComponentActivity() {
     lateinit var authRepository: AuthRepository
 
     @Inject
+    lateinit var settingsManager: SettingsManager
+
+    @Inject
     lateinit var playbackManager: PlaybackManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            AudexTheme {
+            val serverUri by settingsManager.serverUri.collectAsState()
+            CompositionLocalProvider(LocalServerUri provides (serverUri ?: "")) {
+                AudexTheme {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
 
-                val startDestination = if (authRepository.isLoggedIn()) {
-                    Screen.Library.route
-                } else {
-                    Screen.Login.route
+                val startDestination = when {
+                    !settingsManager.isValidUri(settingsManager.getServerUri()) -> Screen.ServerSettings.route
+                    authRepository.isLoggedIn() -> Screen.Library.route
+                    else -> Screen.Login.route
                 }
 
                 val showBottomBar = currentDestination?.route != null && 
@@ -92,6 +101,7 @@ class MainActivity : ComponentActivity() {
                         startDestination = startDestination,
                         modifier = Modifier.padding(innerPadding)
                     )
+                }
                 }
             }
         }

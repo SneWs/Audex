@@ -13,6 +13,7 @@ import se.grenangen.audex.ui.screen.library.LibraryType
 import se.grenangen.audex.ui.screen.login.LoginScreen
 import se.grenangen.audex.ui.screen.player.PlayerScreen
 import se.grenangen.audex.ui.screen.search.SearchScreen
+import se.grenangen.audex.ui.screen.settings.SettingsScreen
 
 @Composable
 fun AudexNavGraph(
@@ -25,6 +26,18 @@ fun AudexNavGraph(
         startDestination = startDestination,
         modifier = modifier
     ) {
+        composable(Screen.ServerSettings.route) {
+            SettingsScreen(
+                onSuccess = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(Screen.ServerSettings.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+        composable(Screen.Settings.route) {
+            SettingsScreen()
+        }
         composable(Screen.Login.route) {
             LoginScreen(
                 onLoginSuccess = {

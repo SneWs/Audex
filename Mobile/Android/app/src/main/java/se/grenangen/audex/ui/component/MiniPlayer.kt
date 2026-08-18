@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import se.grenangen.audex.playback.PlaybackManager
+import se.grenangen.audex.ui.composition.LocalServerUri
 import se.grenangen.audex.util.TimeUtils
 
 @Composable
@@ -30,6 +31,7 @@ fun MiniPlayer(
     val isPlaying by playbackManager.isPlaying.collectAsState()
     val position by playbackManager.currentPosition.collectAsState()
     val duration by playbackManager.currentDuration.collectAsState()
+    val serverUri = LocalServerUri.current
 
     if (book == null) return
 
@@ -54,7 +56,7 @@ fun MiniPlayer(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AsyncImage(
-                    model = "https://books.grenangen.se/api/books/${book?.id}/cover",
+                    model = "${serverUri}books/${book?.id}/cover",
                     contentDescription = null,
                     modifier = Modifier.size(48.dp),
                     contentScale = ContentScale.Crop
