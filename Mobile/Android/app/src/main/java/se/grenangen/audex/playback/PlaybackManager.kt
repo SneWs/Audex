@@ -114,11 +114,7 @@ class PlaybackManager @Inject constructor(
 
     fun playBook(book: BookDetailDto, chapterIndex: Int? = null, positionMs: Long? = null) {
         val c = controller ?: return
-        
-        // Stop and clear previous items to release memory
-        c.stop()
-        c.clearMediaItems()
-        
+
         _currentBook.value = book
 
         val mediaItems = book.chapters.orEmpty().map { chapter ->
