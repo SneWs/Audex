@@ -19,6 +19,7 @@ import se.grenangen.audex.ui.screen.settings.SettingsScreen
 fun AudexNavGraph(
     navController: NavHostController,
     startDestination: String,
+    onMenuClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -36,7 +37,9 @@ fun AudexNavGraph(
             )
         }
         composable(Screen.Settings.route) {
-            SettingsScreen()
+            SettingsScreen(
+                onMenuClick = onMenuClick
+            )
         }
         composable(Screen.Login.route) {
             LoginScreen(
@@ -52,7 +55,8 @@ fun AudexNavGraph(
                 type = LibraryType.ALL,
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
-                }
+                },
+                onMenuClick = onMenuClick
             )
         }
         composable(Screen.Recents.route) {
@@ -60,7 +64,8 @@ fun AudexNavGraph(
                 type = LibraryType.RECENTS,
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
-                }
+                },
+                onMenuClick = onMenuClick
             )
         }
         composable(Screen.Continue.route) {
@@ -68,7 +73,8 @@ fun AudexNavGraph(
                 type = LibraryType.CONTINUE,
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
-                }
+                },
+                onMenuClick = onMenuClick
             )
         }
         composable(Screen.Favorites.route) {
@@ -76,7 +82,8 @@ fun AudexNavGraph(
                 type = LibraryType.FAVORITES,
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
-                }
+                },
+                onMenuClick = onMenuClick
             )
         }
         composable(
@@ -99,7 +106,8 @@ fun AudexNavGraph(
             SearchScreen(
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
-                }
+                },
+                onMenuClick = onMenuClick
             )
         }
     }

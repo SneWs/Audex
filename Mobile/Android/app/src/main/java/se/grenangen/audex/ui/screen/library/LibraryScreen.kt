@@ -3,6 +3,8 @@ package se.grenangen.audex.ui.screen.library
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -14,6 +16,7 @@ import se.grenangen.audex.ui.component.BookGrid
 fun LibraryScreen(
     type: LibraryType = LibraryType.ALL,
     onBookClick: (Int) -> Unit,
+    onMenuClick: (() -> Unit)? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val books by viewModel.books.collectAsState()
@@ -36,6 +39,13 @@ fun LibraryScreen(
                         LibraryType.CONTINUE -> "Continue Listening"
                         LibraryType.FAVORITES -> "Favorites"
                     }) 
+                },
+                navigationIcon = {
+                    if (onMenuClick != null) {
+                        IconButton(onClick = onMenuClick) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    }
                 }
             ) 
         }

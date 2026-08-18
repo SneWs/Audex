@@ -20,6 +20,6 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 
     object NavItems {
-        val bottomNavItems = listOf(Library, Recents, Continue, Favorites, Search, Settings)
+        val topLevelDestinations = listOf(Library, Recents, Continue, Favorites, Search, Settings)
     }
 }

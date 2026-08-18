@@ -39,8 +39,7 @@ fun MiniPlayer(
         modifier = modifier
             .fillMaxWidth()
             .height(64.dp)
-            .clickable(onClick = onClick)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+            .clickable(onClick = onClick),
         tonalElevation = 8.dp,
         shadowElevation = 8.dp
     ) {
@@ -52,7 +51,10 @@ fun MiniPlayer(
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AsyncImage(
