@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import se.grenangen.audex.util.HtmlUtils
 import se.grenangen.audex.util.TimeUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,7 +71,10 @@ fun BookDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = detail.description ?: "", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = detail.description?.let(HtmlUtils::toPlainText).orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(text = "Chapters", style = MaterialTheme.typography.titleLarge)
                         }
