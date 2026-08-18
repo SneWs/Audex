@@ -12,6 +12,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,15 @@ class PlaybackManager @Inject constructor(
     private val _currentDuration = MutableStateFlow(0L)
     val currentDuration = _currentDuration.asStateFlow()
 
+    private val _currentChapterIndex = MutableStateFlow(0)
+    val currentChapterIndex = _currentChapterIndex.asStateFlow()
+
+    private val _sleepTimerEndTime = MutableStateFlow<Long?>(null)
+    val sleepTimerEndTime = _sleepTimerEndTime.asStateFlow()
+    private val _sleepTimerRemainingMillis = MutableStateFlow<Long?>(null)
+    val sleepTimerRemainingMillis = _sleepTimerRemainingMillis.asStateFlow()
+    private var sleepTimerJob: Job? = null
+
     init {
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
@@ -73,6 +83,11 @@ class PlaybackManager @Inject constructor(
                 if (playbackState == Player.STATE_READY) {
                     _currentDuration.value = c.duration
                 }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                _currentChapterIndex.value = c.currentMediaItemIndex
+                _currentPosition.value = 0L
             }
         })
     }
@@ -134,6 +149,7 @@ class PlaybackManager @Inject constructor(
         val targetChapterIndex = chapterIndex ?: book.chapters?.indexOfFirst { it.id == book.resumeChapterId }?.coerceAtLeast(0) ?: 0
         val targetPositionMs = positionMs ?: (book.resumePositionSec * 1000L)
 
+        _currentChapterIndex.value = targetChapterIndex
         c.setMediaItems(mediaItems, targetChapterIndex, targetPositionMs)
         c.prepare()
         c.play()
@@ -146,5 +162,41 @@ class PlaybackManager @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
+    }
+
+    fun skipToPreviousChapter() {
+        controller?.takeIf { it.hasPreviousMediaItem() }?.seekToPreviousMediaItem()
+    }
+
+    fun skipToNextChapter() {
+        controller?.takeIf { it.hasNextMediaItem() }?.seekToNextMediaItem()
+    }
+
+    fun startSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        val durationMs = minutes * 60_000L
+        val endTime = System.currentTimeMillis() + durationMs
+        _sleepTimerEndTime.value = endTime
+        _sleepTimerRemainingMillis.value = durationMs
+        sleepTimerJob = scope.launch {
+            while (true) {
+                val remainingMs = (endTime - System.currentTimeMillis()).coerceAtLeast(0L)
+                _sleepTimerRemainingMillis.value = remainingMs
+                if (remainingMs == 0L) {
+                    controller?.pause()
+                    _sleepTimerEndTime.value = null
+                    _sleepTimerRemainingMillis.value = null
+                    break
+                }
+                delay(minOf(1_000L, remainingMs))
+            }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _sleepTimerEndTime.value = null
+        _sleepTimerRemainingMillis.value = null
     }
 }

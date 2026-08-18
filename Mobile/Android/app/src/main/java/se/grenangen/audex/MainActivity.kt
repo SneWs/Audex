@@ -6,10 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -17,7 +13,6 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.window.core.layout.WindowWidthSizeClass
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import se.grenangen.audex.data.local.SettingsManager
@@ -47,8 +42,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val serverUri by settingsManager.serverUri.collectAsState()
+            val isDarkMode by settingsManager.darkMode.collectAsState()
             CompositionLocalProvider(LocalServerUri provides (serverUri ?: "")) {
-                AudexTheme {
+                AudexTheme(darkTheme = isDarkMode) {
                 val navController = rememberNavController()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
@@ -59,13 +55,10 @@ class MainActivity : ComponentActivity() {
                     else -> Screen.Login.route
                 }
 
-                val adaptiveInfo = currentWindowAdaptiveInfo()
-                val isExpanded = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.EXPANDED
-                
                 val topLevelRoutes = Screen.NavItems.topLevelDestinations.map { it.route }
                 val isTopLevelDestination = currentDestination?.route in topLevelRoutes
 
-                val drawerState = rememberDrawerState(DrawerValue.Closed)
+                val drawerState = remember(currentDestination?.route) { DrawerState(DrawerValue.Closed) }
                 val scope = rememberCoroutineScope()
 
                 val navigationContent = @Composable {
@@ -90,52 +83,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (isExpanded && isTopLevelDestination) {
-                    PermanentNavigationDrawer(
-                        drawerContent = {
-                            PermanentDrawerSheet(
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    gesturesEnabled = isTopLevelDestination,
+                    drawerContent = {
+                        if (isTopLevelDestination) {
+                            ModalDrawerSheet(
                                 modifier = Modifier.width(240.dp),
                                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
                             ) {
                                 navigationContent()
                             }
                         }
-                    ) {
-                        Box(Modifier.consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))) {
-                            AppContent(
-                                navController = navController,
-                                playbackManager = playbackManager,
-                                startDestination = startDestination,
-                                currentDestination = currentDestination,
-                                onMenuClick = null
-                            )
-                        }
                     }
-                } else {
-                    ModalNavigationDrawer(
-                        drawerState = drawerState,
-                        gesturesEnabled = isTopLevelDestination,
-                        drawerContent = {
-                            if (isTopLevelDestination) {
-                                ModalDrawerSheet(
-                                    modifier = Modifier.width(240.dp),
-                                    windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
-                                ) {
-                                    navigationContent()
-                                }
-                            }
-                        }
-                    ) {
-                        AppContent(
-                            navController = navController,
-                            playbackManager = playbackManager,
-                            startDestination = startDestination,
-                            currentDestination = currentDestination,
-                            onMenuClick = if (isTopLevelDestination) {
-                                { scope.launch { drawerState.open() } }
-                            } else null
-                        )
-                    }
+                ) {
+                    AppContent(
+                        navController = navController,
+                        playbackManager = playbackManager,
+                        startDestination = startDestination,
+                        currentDestination = currentDestination,
+                        onMenuClick = if (isTopLevelDestination) {
+                            { scope.launch { drawerState.open() } }
+                        } else null
+                    )
                 }
                 }
             }

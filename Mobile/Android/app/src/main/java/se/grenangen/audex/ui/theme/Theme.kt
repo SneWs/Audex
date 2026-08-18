@@ -1,55 +1,43 @@
 package se.grenangen.audex.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
     primary = AudexPrimary,
     secondary = AudexSecondaryDark,
-    background = AudexBackgroundDark,
-    surface = AudexSurfaceDark,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onBackground = Color.White,
-    onSurface = Color.White
+    background = AudexDarkBackground,
+    surface = AudexDarkSurface,
+    surfaceVariant = AudexDarkSurface,
+    onPrimary = AudexDarkOnSurface,
+    onSecondary = AudexDarkOnSurface,
+    onBackground = AudexDarkOnSurface,
+    onSurface = AudexDarkOnSurface,
+    onSurfaceVariant = AudexDarkOnSurfaceVariant
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = AudexPrimary,
     secondary = AudexSecondaryLight,
-    background = AudexBackgroundLight,
-    surface = Color.White,
+    background = AudexLightBackground,
+    surface = AudexLightSurface,
+    surfaceVariant = AudexLightSurfaceVariant,
     onPrimary = Color.White,
     onSecondary = Color.White,
-    onBackground = Color(0xFF2B2B2B),
-    onSurface = Color(0xFF2B2B2B)
+    onBackground = AudexLightOnSurface,
+    onSurface = AudexLightOnSurface,
+    onSurfaceVariant = AudexLightOnSurfaceVariant
 )
 
 @Composable
 fun AudexTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Disable dynamic color by default to use brand colors
-    dynamicColor: Boolean = false,
+    darkTheme: Boolean,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,

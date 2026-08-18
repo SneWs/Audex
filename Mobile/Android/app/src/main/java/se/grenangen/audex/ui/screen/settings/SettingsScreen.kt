@@ -1,6 +1,8 @@
 package se.grenangen.audex.ui.screen.settings
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
@@ -30,6 +32,11 @@ class SettingsViewModel @Inject constructor(
     var error by mutableStateOf<String?>(null)
     var successMessage by mutableStateOf<String?>(null)
     var isValidating by mutableStateOf(false)
+    val darkMode = settingsManager.darkMode
+
+    fun setDarkMode(enabled: Boolean) {
+        settingsManager.setDarkMode(enabled)
+    }
 
     fun saveServerUri(onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
@@ -95,6 +102,7 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(padding)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -140,6 +148,25 @@ fun SettingsScreen(
                     Text(if (onSuccess != null) "Save and Continue" else "Save Settings")
                 }
             }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            val darkMode by viewModel.darkMode.collectAsState()
+            ListItem(
+                headlineContent = { Text("Dark mode") },
+                supportingContent = { Text("Use the darker Audex color palette") },
+                trailingContent = {
+                    Switch(
+                        checked = darkMode,
+                        onCheckedChange = viewModel::setDarkMode
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

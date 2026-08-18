@@ -14,6 +14,9 @@ class PlayerViewModel @Inject constructor(
     val isPlaying = playbackManager.isPlaying
     val currentPosition = playbackManager.currentPosition
     val currentDuration = playbackManager.currentDuration
+    val currentChapterIndex = playbackManager.currentChapterIndex
+    val sleepTimerEndTime = playbackManager.sleepTimerEndTime
+    val sleepTimerRemainingMillis = playbackManager.sleepTimerRemainingMillis
 
     fun togglePlayPause() {
         playbackManager.togglePlayPause()
@@ -21,5 +24,21 @@ class PlayerViewModel @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         playbackManager.seekTo(positionMs)
+    }
+
+    fun skipToPreviousChapter() {
+        playbackManager.skipToPreviousChapter()
+    }
+
+    fun skipToNextChapter() {
+        playbackManager.skipToNextChapter()
+    }
+
+    fun startSleepTimer(minutes: Int) {
+        playbackManager.startSleepTimer(minutes)
+    }
+
+    fun cancelSleepTimer() {
+        playbackManager.cancelSleepTimer()
     }
 }
