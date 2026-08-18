@@ -69,4 +69,24 @@ class LibraryViewModel @Inject constructor(
             }
         }
     }
+
+    fun toggleFavorite(bookId: Int) {
+        viewModelScope.launch {
+            val book = _books.value.find { it.id == bookId } ?: return@launch
+            val newFavoriteState = !book.isFavorite
+            
+            // Optimistic update
+            _books.value = _books.value.map {
+                if (it.id == bookId) it.copy(isFavorite = newFavoriteState) else it
+            }
+
+            val result = bookRepository.toggleFavorite(bookId, newFavoriteState)
+            result.onFailure {
+                // Revert on failure
+                _books.value = _books.value.map {
+                    if (it.id == bookId) it.copy(isFavorite = !newFavoriteState) else it
+                }
+            }
+        }
+    }
 }

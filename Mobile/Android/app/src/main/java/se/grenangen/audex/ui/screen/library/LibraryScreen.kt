@@ -87,6 +87,9 @@ fun LibraryScreen(
                             viewModel.playBook(bookId)
                         }
                     },
+                    onFavoriteClick = { bookId ->
+                        viewModel.toggleFavorite(bookId)
+                    },
                     contentPadding = padding
                 )
             }

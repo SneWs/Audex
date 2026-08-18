@@ -63,6 +63,7 @@ fun SearchScreen(
                 isPlaying = isPlaying,
                 onBookClick = onBookClick,
                 onPlayClick = viewModel::playBook,
+                onFavoriteClick = viewModel::toggleFavorite,
                 contentPadding = padding
             )
         }

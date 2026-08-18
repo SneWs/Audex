@@ -13,4 +13,14 @@ object TimeUtils {
     fun formatDurationMs(ms: Long): String {
         return formatDuration((ms / 1000).toInt())
     }
+
+    fun formatShortDuration(seconds: Int): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        return if (h > 0) {
+            String.format(Locale.getDefault(), "%dh %dm", h, m)
+        } else {
+            String.format(Locale.getDefault(), "%dm", m)
+        }
+    }
 }
