@@ -7,8 +7,6 @@ import dagger.hilt.components.SingletonComponent
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
-import io.ktor.client.plugins.auth.*
-import io.ktor.client.plugins.auth.providers.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
 import io.ktor.client.plugins.observer.*
@@ -36,6 +34,7 @@ object NetworkModule {
     @Singleton
     fun provideHttpClient(json: Json, tokenManager: TokenManager, settingsManager: SettingsManager): HttpClient {
         return HttpClient(OkHttp) {
+            expectSuccess = true
             install(ContentNegotiation) {
                 json(json)
             }
@@ -45,21 +44,17 @@ object NetworkModule {
                         android.util.Log.d("Ktor", message)
                     }
                 }
-                level = LogLevel.ALL
-            }
-            install(Auth) {
-                bearer {
-                    loadTokens {
-                        tokenManager.getToken()?.let { BearerTokens(it, "") }
-                    }
-                    sendWithoutRequest { request ->
-                        val path = request.url.encodedPath
-                        !path.endsWith("/login") && !path.endsWith("/register")
-                    }
-                }
+                level = LogLevel.HEADERS
             }
         }.also { client ->
             client.plugin(HttpSend).intercept { request ->
+                val path = request.url.encodedPath
+                if (!path.endsWith("/login") && !path.endsWith("/register")) {
+                    tokenManager.getToken()?.let { token ->
+                        request.headers.append(HttpHeaders.Authorization, "Bearer $token")
+                    }
+                }
+
                 val serverUri = settingsManager.getServerUri()
                 if (serverUri != null && (request.url.host.isEmpty() || request.url.host == "localhost")) {
                     val baseUrl = Url(serverUri)
