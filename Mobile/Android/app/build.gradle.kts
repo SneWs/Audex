@@ -4,17 +4,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "se.grenangen.audex"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "se.grenangen.audex"
         minSdk = 31
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
 
@@ -34,9 +33,8 @@ android {
     buildFeatures {
         compose = true
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    compileSdkMinor = 0
+    buildToolsVersion = "36.0.0"
 }
 
 dependencies {
