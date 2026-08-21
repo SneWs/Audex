@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -142,6 +143,7 @@ class PlaybackManager @Inject constructor(
             MediaItem.Builder()
                 .setMediaId(chapter.id.toString())
                 .setUri("${settingsManager.getServerUri()}chapters/${chapter.id}/audio")
+                .setMimeType(MimeTypes.AUDIO_MPEG)
                 .setMediaMetadata(metadata)
                 .build()
         }

@@ -32,8 +32,26 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideHttpClient(json: Json, tokenManager: TokenManager, settingsManager: SettingsManager): HttpClient {
+    fun provideOkHttpClient(): okhttp3.OkHttpClient {
+        return okhttp3.OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideHttpClient(
+        json: Json,
+        tokenManager: TokenManager,
+        settingsManager: SettingsManager,
+        okHttpClient: okhttp3.OkHttpClient
+    ): HttpClient {
         return HttpClient(OkHttp) {
+            engine {
+                preconfigured = okHttpClient
+            }
             expectSuccess = true
             install(ContentNegotiation) {
                 json(json)

@@ -6,7 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.*
+import androidx.window.core.layout.WindowWidthSizeClass
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -83,29 +85,53 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                ModalNavigationDrawer(
-                    drawerState = drawerState,
-                    gesturesEnabled = isTopLevelDestination,
-                    drawerContent = {
-                        if (isTopLevelDestination) {
-                            ModalDrawerSheet(
+                val adaptiveInfo = currentWindowAdaptiveInfo()
+                val usePermanentDrawer = adaptiveInfo.windowSizeClass.windowWidthSizeClass != WindowWidthSizeClass.COMPACT
+
+                if (usePermanentDrawer && isTopLevelDestination) {
+                    PermanentNavigationDrawer(
+                        drawerContent = {
+                            PermanentDrawerSheet(
                                 modifier = Modifier.width(240.dp),
                                 windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
                             ) {
                                 navigationContent()
                             }
                         }
+                    ) {
+                        AppContent(
+                            navController = navController,
+                            playbackManager = playbackManager,
+                            startDestination = startDestination,
+                            currentDestination = currentDestination,
+                            onMenuClick = null
+                        )
                     }
-                ) {
-                    AppContent(
-                        navController = navController,
-                        playbackManager = playbackManager,
-                        startDestination = startDestination,
-                        currentDestination = currentDestination,
-                        onMenuClick = if (isTopLevelDestination) {
-                            { scope.launch { drawerState.open() } }
-                        } else null
-                    )
+                } else {
+                    ModalNavigationDrawer(
+                        drawerState = drawerState,
+                        gesturesEnabled = isTopLevelDestination,
+                        drawerContent = {
+                            if (isTopLevelDestination) {
+                                ModalDrawerSheet(
+                                    modifier = Modifier.width(240.dp),
+                                    windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
+                                ) {
+                                    navigationContent()
+                                }
+                            }
+                        }
+                    ) {
+                        AppContent(
+                            navController = navController,
+                            playbackManager = playbackManager,
+                            startDestination = startDestination,
+                            currentDestination = currentDestination,
+                            onMenuClick = if (isTopLevelDestination) {
+                                { scope.launch { drawerState.open() } }
+                            } else null
+                        )
+                    }
                 }
                 }
             }
