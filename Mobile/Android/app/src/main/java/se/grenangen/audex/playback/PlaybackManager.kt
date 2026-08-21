@@ -78,6 +78,11 @@ class PlaybackManager @Inject constructor(
         c.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
+                if (!isPlaying) {
+                    scope.launch {
+                        controller?.let { syncProgress(it) }
+                    }
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
