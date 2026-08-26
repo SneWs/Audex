@@ -7,5 +7,7 @@ data class ChapterDto(
     val id: Int,
     val title: String,
     val durationSec: Int,
-    val trackNumber: Int
+    val trackNumber: Int,
+    val audioUrl: String = "",
+    val downloadUrl: String = ""
 )

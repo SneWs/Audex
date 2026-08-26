@@ -24,6 +24,7 @@ import se.grenangen.audex.data.model.BookDetailDto
 import se.grenangen.audex.data.model.ProgressDto
 import se.grenangen.audex.data.repository.AuthRepository
 import se.grenangen.audex.data.repository.BookRepository
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -147,7 +148,7 @@ class PlaybackManager @Inject constructor(
 
             MediaItem.Builder()
                 .setMediaId(chapter.id.toString())
-                .setUri("${settingsManager.getServerUri()}chapters/${chapter.id}/audio")
+                .setUri(resolveChapterPlaybackUri(book, chapter.id, chapter.title))
                 .setMimeType(MimeTypes.AUDIO_MPEG)
                 .setMediaMetadata(metadata)
                 .build()
@@ -161,6 +162,28 @@ class PlaybackManager @Inject constructor(
         c.prepare()
         c.play()
     }
+
+    private fun resolveChapterPlaybackUri(book: BookDetailDto, chapterId: Int, chapterTitle: String): String {
+        val localFile = resolveOfflineFile(book, chapterId, chapterTitle)
+        if (localFile != null && localFile.exists() && localFile.length() > 0L) {
+            return localFile.toURI().toString()
+        }
+
+        return "${settingsManager.getServerUri()}chapters/$chapterId/audio"
+    }
+
+    private fun resolveOfflineFile(book: BookDetailDto, chapterId: Int, chapterTitle: String): File? {
+        val chapter = book.chapters.orEmpty().firstOrNull { it.id == chapterId } ?: return null
+        val extension = chapter.downloadUrl.substringBefore('?').substringAfterLast('.', ".mp3")
+            .let { if (it.startsWith(".")) it else ".$it" }
+            .lowercase()
+        val chapterBaseName = "${chapter.trackNumber.toString().padStart(3, '0')}-${sanitizeFileName(chapterTitle)}"
+        val bookDir = File(context.filesDir, "offline-books/${sanitizeFileName(book.title.ifBlank { "book-${book.id}" })}")
+        return File(bookDir, "$chapterBaseName$extension")
+    }
+
+    private fun sanitizeFileName(name: String): String =
+        name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
 
     fun togglePlayPause() {
         val c = controller ?: return

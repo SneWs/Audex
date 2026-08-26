@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +26,7 @@ fun BookDetailScreen(
 ) {
     val book by viewModel.book.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val downloadState by viewModel.downloadState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -39,11 +41,16 @@ fun BookDetailScreen(
         },
         floatingActionButton = {
             book?.let {
-                FloatingActionButton(onClick = {
-                    viewModel.playBook()
-                    onPlayClick()
-                }) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FloatingActionButton(onClick = viewModel::downloadBookForOffline) {
+                        Icon(Icons.Default.Download, contentDescription = "Download")
+                    }
+                    FloatingActionButton(onClick = {
+                        viewModel.playBook()
+                        onPlayClick()
+                    }) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Play")
+                    }
                 }
             }
         }
@@ -70,6 +77,31 @@ fun BookDetailScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            when (val state = downloadState) {
+                                is BookDetailViewModel.DownloadState.Downloading -> {
+                                    Text(
+                                        text = "Downloading ${state.downloaded}/${state.total} chapters",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                is BookDetailViewModel.DownloadState.Completed -> {
+                                    Text(
+                                        text = "Book downloaded for offline playback",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                is BookDetailViewModel.DownloadState.Error -> {
+                                    Text(
+                                        text = state.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                                BookDetailViewModel.DownloadState.Idle -> Unit
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = detail.description?.let(HtmlUtils::toPlainText).orEmpty(),

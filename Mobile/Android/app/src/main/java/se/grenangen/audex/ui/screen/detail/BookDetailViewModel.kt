@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import se.grenangen.audex.data.model.BookDetailDto
+import se.grenangen.audex.data.repository.BookDownloadRepository
 import se.grenangen.audex.data.repository.BookRepository
 import se.grenangen.audex.playback.PlaybackManager
 import javax.inject.Inject
@@ -15,6 +16,7 @@ import javax.inject.Inject
 @HiltViewModel
 class BookDetailViewModel @Inject constructor(
     private val bookRepository: BookRepository,
+    private val bookDownloadRepository: BookDownloadRepository,
     private val playbackManager: PlaybackManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -26,6 +28,9 @@ class BookDetailViewModel @Inject constructor(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
+
+    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
+    val downloadState = _downloadState.asStateFlow()
 
     init {
         loadBook()
@@ -48,5 +53,30 @@ class BookDetailViewModel @Inject constructor(
         _book.value?.let {
             playbackManager.playBook(it, chapterIndex)
         }
+    }
+
+    fun downloadBookForOffline() {
+        val book = _book.value ?: return
+        if (_downloadState.value is DownloadState.Downloading) return
+
+        viewModelScope.launch {
+            _downloadState.value = DownloadState.Downloading(0, book.chapters.orEmpty().size)
+            runCatching {
+                bookDownloadRepository.downloadBook(book) { downloaded, total ->
+                    _downloadState.value = DownloadState.Downloading(downloaded, total)
+                }
+            }.onSuccess {
+                _downloadState.value = DownloadState.Completed
+            }.onFailure { e ->
+                _downloadState.value = DownloadState.Error(e.message ?: "Failed to download book")
+            }
+        }
+    }
+
+    sealed interface DownloadState {
+        data object Idle : DownloadState
+        data class Downloading(val downloaded: Int, val total: Int) : DownloadState
+        data object Completed : DownloadState
+        data class Error(val message: String) : DownloadState
     }
 }
