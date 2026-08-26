@@ -292,7 +292,9 @@ books.MapGet("/api/books/{id:int}", async (int id, AppDbContext db, ClaimsPrinci
                 Id = c.Id,
                 Title = c.Title,
                 DurationSec = c.DurationSec,
-                TrackNumber = c.TrackNumber
+                TrackNumber = c.TrackNumber,
+                AudioUrl = $"/api/chapters/{c.Id}/audio",
+                DownloadUrl = $"/api/chapters/{c.Id}/download"
             })
             .ToList()
     });
@@ -422,6 +424,25 @@ chapters.MapGet("/api/chapters/{id:int}/audio", async (int id, AppDbContext db, 
 })
 .WithSummary("Stream a chapter's audio file (supports range requests)")
 .Produces(StatusCodes.Status200OK, contentType: "audio/mpeg")
+.Produces(StatusCodes.Status404NotFound);
+
+chapters.MapGet("/api/chapters/{id:int}/download", async (int id, AppDbContext db, IOptions<AudiobookSettings> opt) =>
+{
+    var chapter = await db.Chapters.FindAsync(id);
+    if (chapter is null) return Results.NotFound();
+
+    var path = Path.Combine(opt.Value.LibraryPath, chapter.FilePath);
+    if (!File.Exists(path)) return Results.NotFound();
+
+    return Results.File(
+        path,
+        ContentTypeFor(path),
+        fileDownloadName: Path.GetFileName(path),
+        enableRangeProcessing: true);
+})
+.RequireAuthorization()
+.WithSummary("Download a chapter audio file (supports range requests and resumable downloads)")
+.Produces(StatusCodes.Status200OK, contentType: "application/octet-stream")
 .Produces(StatusCodes.Status404NotFound);
 
 progress.MapPost("/api/users/{userId:int}/progress", async (int userId, ProgressDto dto, AppDbContext db) =>

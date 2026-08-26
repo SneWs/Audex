@@ -6,4 +6,6 @@ public class ChapterDto
     public string Title { get; init; } = string.Empty;
     public int DurationSec { get; init; }
     public int TrackNumber { get; init; }
+    public string AudioUrl { get; init; } = string.Empty;
+    public string DownloadUrl { get; init; } = string.Empty;
 }
