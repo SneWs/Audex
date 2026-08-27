@@ -12,6 +12,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
+    message: String? = null,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val email by viewModel.email.collectAsState()
@@ -27,6 +28,12 @@ fun LoginScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(text = "Audex Login", style = MaterialTheme.typography.headlineMedium)
+        
+        message?.let {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = it, color = MaterialTheme.colorScheme.primary)
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
         OutlinedTextField(
             value = email,

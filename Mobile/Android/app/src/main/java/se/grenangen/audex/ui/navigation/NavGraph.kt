@@ -38,11 +38,25 @@ fun AudexNavGraph(
         }
         composable(Screen.Settings.route) {
             SettingsScreen(
-                onMenuClick = onMenuClick
+                onMenuClick = onMenuClick,
+                onLogout = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
             )
         }
-        composable(Screen.Login.route) {
+        composable(
+            route = Screen.Login.route,
+            arguments = listOf(navArgument("message") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            })
+        ) { backStackEntry ->
+            val message = backStackEntry.arguments?.getString("message")
             LoginScreen(
+                message = message,
                 onLoginSuccess = {
                     navController.navigate(Screen.Library.route) {
                         popUpTo(Screen.Login.route) { inclusive = true }

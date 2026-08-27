@@ -6,16 +6,20 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
+import io.ktor.client.call.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.logging.*
-import io.ktor.client.plugins.observer.*
 import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.local.TokenManager
+import se.grenangen.audex.data.model.AuthResponse
+import se.grenangen.audex.util.AuthEvent
+import se.grenangen.audex.util.AuthEventBus
 import javax.inject.Singleton
 
 @Module
@@ -46,7 +50,8 @@ object NetworkModule {
         json: Json,
         tokenManager: TokenManager,
         settingsManager: SettingsManager,
-        okHttpClient: okhttp3.OkHttpClient
+        okHttpClient: okhttp3.OkHttpClient,
+        authEventBus: AuthEventBus
     ): HttpClient {
         return HttpClient(OkHttp) {
             engine {
@@ -67,9 +72,30 @@ object NetworkModule {
         }.also { client ->
             client.plugin(HttpSend).intercept { request ->
                 val path = request.url.encodedPath
-                if (!path.endsWith("/login") && !path.endsWith("/register")) {
+                val isAuthRequest = path.endsWith("/login") || path.endsWith("/register")
+                val isRefreshRequest = path.endsWith("/refresh")
+
+                if (!isAuthRequest) {
+                    if (!isRefreshRequest && tokenManager.isTokenNearExpiry()) {
+                        try {
+                            val serverUri = settingsManager.getServerUri()
+                            if (serverUri != null) {
+                                val refreshUrl = URLBuilder(serverUri).apply {
+                                    appendPathSegments("api", "refresh")
+                                }.build()
+                                val refreshResponse = client.post(refreshUrl)
+                                if (refreshResponse.status == HttpStatusCode.OK) {
+                                    val authResponse = refreshResponse.body<AuthResponse>()
+                                    tokenManager.saveToken(authResponse.token)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("NetworkModule", "Failed to refresh token", e)
+                        }
+                    }
+
                     tokenManager.getToken()?.let { token ->
-                        request.headers.append(HttpHeaders.Authorization, "Bearer $token")
+                        request.headers[HttpHeaders.Authorization] = "Bearer $token"
                     }
                 }
 
@@ -83,7 +109,15 @@ object NetworkModule {
                     val basePath = baseUrl.encodedPath.removeSuffix("/")
                     request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
                 }
-                execute(request)
+
+                val response = execute(request)
+                
+                if (response.response.status == HttpStatusCode.Unauthorized && !isAuthRequest) {
+                    tokenManager.saveToken(null)
+                    authEventBus.tryEmit(AuthEvent.SessionExpired("Session expired. Please log in again."))
+                }
+
+                response
             }
         }
     }

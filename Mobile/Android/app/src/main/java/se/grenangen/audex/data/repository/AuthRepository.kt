@@ -45,6 +45,18 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    suspend fun refreshToken(): Result<AuthResponse> {
+        return try {
+            val response = apiService.refreshToken()
+            tokenManager.saveToken(response.token)
+            Result.success(response)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun isTokenNearExpiry(): Boolean = tokenManager.isTokenNearExpiry()
+
     fun logout() {
         tokenManager.saveToken(null)
     }

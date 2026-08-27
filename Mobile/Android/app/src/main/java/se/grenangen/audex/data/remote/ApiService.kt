@@ -18,6 +18,9 @@ class ApiService @Inject constructor(
             setBody(request)
         }.body()
 
+    suspend fun refreshToken(): AuthResponse =
+        client.post("refresh").body()
+
     suspend fun getBooks(): List<BookDto> =
         client.get("books").body()
 

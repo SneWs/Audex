@@ -19,6 +19,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.repository.AuthRepository
+import se.grenangen.audex.util.AuthEvent
+import se.grenangen.audex.util.AuthEventBus
 import se.grenangen.audex.ui.composition.LocalServerUri
 import se.grenangen.audex.playback.PlaybackManager
 import se.grenangen.audex.ui.component.MiniPlayer
@@ -39,6 +41,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var playbackManager: PlaybackManager
 
+    @Inject
+    lateinit var authEventBus: AuthEventBus
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -48,6 +53,19 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalServerUri provides (serverUri ?: "")) {
                 AudexTheme(darkTheme = isDarkMode) {
                 val navController = rememberNavController()
+
+                LaunchedEffect(navController) {
+                    authEventBus.events.collect { event ->
+                        when (event) {
+                            is AuthEvent.SessionExpired -> {
+                                navController.navigate(Screen.Login.createRoute(event.message)) {
+                                    popUpTo(0) { inclusive = true }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = navBackStackEntry?.destination
 

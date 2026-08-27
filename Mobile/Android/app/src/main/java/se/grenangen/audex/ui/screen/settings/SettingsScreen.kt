@@ -38,6 +38,10 @@ class SettingsViewModel @Inject constructor(
         settingsManager.setDarkMode(enabled)
     }
 
+    fun logout() {
+        authRepository.logout()
+    }
+
     fun saveServerUri(onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             error = null
@@ -82,9 +86,37 @@ class SettingsViewModel @Inject constructor(
 @Composable
 fun SettingsScreen(
     onSuccess: (() -> Unit)? = null,
+    onLogout: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog && onLogout != null) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Logout") },
+            text = { Text("Are you sure you want to logout? You will need to log in again to access your library.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutDialog = false
+                        viewModel.logout()
+                        onLogout()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Logout")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -167,6 +199,22 @@ fun SettingsScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             )
+
+            if (onLogout != null) {
+                Spacer(modifier = Modifier.height(32.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { showLogoutDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Text("Logout")
+                }
+            }
         }
     }
 }

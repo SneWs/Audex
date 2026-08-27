@@ -7,7 +7,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String, val title: String = "", val icon: ImageVector? = null) {
     object ServerSettings : Screen("server_settings")
-    object Login : Screen("login")
+    object Login : Screen("login?message={message}") {
+        fun createRoute(message: String? = null) = if (message != null) "login?message=$message" else "login"
+    }
     object Library : Screen("library", "Library", Icons.AutoMirrored.Filled.LibraryBooks)
     object Recents : Screen("recents", "Recents", Icons.Default.NewReleases)
     object Continue : Screen("continue", "Continue", Icons.Default.PlayCircleOutline)
