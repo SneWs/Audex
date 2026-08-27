@@ -142,6 +142,19 @@ auth.MapPost("/api/login", async (LoginRequest req, AppDbContext db) =>
 .Produces<AuthResponse>()
 .Produces(StatusCodes.Status401Unauthorized);
 
+auth.MapPost("/api/refresh", async (AppDbContext db, ClaimsPrincipal principal) =>
+{
+    var userId = GetUserId(principal);
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (user is null) return Results.Unauthorized();
+
+    return Results.Ok(new AuthResponse(GenerateToken(user)));
+})
+.RequireAuthorization()
+.WithSummary("Refresh the current JWT")
+.Produces<AuthResponse>()
+.Produces(StatusCodes.Status401Unauthorized);
+
 books.MapGet("/api/books", async (AppDbContext db, ClaimsPrincipal principal) =>
 {
     var userId = GetUserId(principal);
