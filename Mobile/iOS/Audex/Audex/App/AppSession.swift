@@ -5,10 +5,11 @@ final class AppSession {
     let settings: AppSettings
     let api = APIClient()
 
+    private(set) var token: String?
     var sessionExpiredMessage: String?
     var account: Account?
 
-    var isLoggedIn: Bool { api.token != nil }
+    var isLoggedIn: Bool { token != nil }
     var serverURL: URL? { settings.serverURL }
     var prefersDarkMode: Bool {
         get { settings.prefersDarkMode }
@@ -16,14 +17,16 @@ final class AppSession {
     }
 
     var userID: Int? {
-        guard let token = api.token else { return nil }
+        guard let token else { return nil }
         return JWTClaims.userID(from: token)
     }
 
     init() {
         settings = AppSettings()
         api.origin = settings.serverURL
-        api.token = KeychainStore.load()
+        let stored = KeychainStore.load()
+        token = stored
+        api.token = stored
         api.onUnauthorized = { [weak self] in
             self?.handleSessionExpired()
         }
@@ -35,30 +38,33 @@ final class AppSession {
         api.origin = origin
     }
 
+    func clearServerURL() {
+        settings.serverURLString = ""
+        api.origin = nil
+    }
+
     func login(email: String, password: String) async throws {
         let response = try await api.login(email: email, password: password)
         store(token: response.token)
         sessionExpiredMessage = nil
-        await loadAccount()
+        Task { await loadAccount() }
     }
 
     func register(email: String, password: String) async throws {
         let response = try await api.register(email: email, password: password)
         store(token: response.token)
         sessionExpiredMessage = nil
-        await loadAccount()
+        Task { await loadAccount() }
     }
 
     func logout() {
-        api.token = nil
+        clearToken()
         account = nil
-        KeychainStore.delete()
     }
 
     func handleSessionExpired() {
-        api.token = nil
+        clearToken()
         account = nil
-        KeychainStore.delete()
         sessionExpiredMessage = "Session expired. Please log in again."
     }
 
@@ -81,8 +87,15 @@ final class AppSession {
     }
 
     private func store(token: String) {
+        self.token = token
         api.token = token
         KeychainStore.save(token)
+    }
+
+    private func clearToken() {
+        token = nil
+        api.token = nil
+        KeychainStore.delete()
     }
 }
 

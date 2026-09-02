@@ -2,13 +2,23 @@ import SwiftUI
 
 struct MiniPlayerBar: View {
     @Environment(PlaybackController.self) private var playback
+    #if os(iOS)
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    #endif
     @State private var showSleepTimer = false
+
+    private var isInlineAccessory: Bool {
+        #if os(iOS)
+        placement == .inline
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         if let book = playback.currentBook {
             Group {
-                if placement == .inline {
+                if isInlineAccessory {
                     compactBar(book)
                 } else {
                     expandedBar(book)
@@ -16,8 +26,19 @@ struct MiniPlayerBar: View {
             }
             .sheet(isPresented: $showSleepTimer) {
                 SleepTimerSheet()
+                    #if os(iOS)
                     .presentationDetents([.medium])
+                    #endif
             }
+            #if os(macOS)
+            .frame(maxWidth: .infinity)
+            .background(AudexColor.surface)
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(AudexColor.primary.opacity(0.35))
+                    .frame(height: 1)
+            }
+            #endif
         }
     }
 
@@ -168,11 +189,15 @@ struct NowPlayingView: View {
             }
             .sheet(isPresented: $showSleepTimer) {
                 SleepTimerSheet()
+                    #if os(iOS)
                     .presentationDetents([.medium])
+                    #endif
             }
             .sheet(isPresented: $showChapters) {
                 chapterList
+                    #if os(iOS)
                     .presentationDetents([.medium, .large])
+                    #endif
             }
         }
     }
@@ -364,5 +389,8 @@ struct SleepTimerSheet: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 360, minHeight: 320)
+        #endif
     }
 }

@@ -17,3 +17,17 @@ enum AudexTheme {
             .preferredColorScheme(darkMode ? .dark : .light)
     }
 }
+
+extension View {
+    @ViewBuilder
+    func audexNowPlayingCover<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        #if os(macOS)
+        sheet(isPresented: isPresented, content: content)
+        #else
+        fullScreenCover(isPresented: isPresented, content: content)
+        #endif
+    }
+}

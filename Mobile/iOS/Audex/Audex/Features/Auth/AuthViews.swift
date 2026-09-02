@@ -161,8 +161,7 @@ struct LoginView: View {
                     .font(.subheadline)
 
                     Button("Change server") {
-                        session.settings.serverURLString = ""
-                        session.api.origin = nil
+                        session.clearServerURL()
                     }
                     .font(.footnote)
                     .foregroundStyle(AudexColor.onSurfaceVariant)
@@ -202,7 +201,8 @@ struct LoginView: View {
                 try await session.login(email: trimmedEmail, password: password)
             }
         } catch {
-            self.error = error.localizedDescription
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            self.error = message.isEmpty ? "Login failed" : message
         }
     }
 }

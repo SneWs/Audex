@@ -306,7 +306,9 @@ final class PlaybackController {
     }
 
     private func applyItemMetadata(_ item: AVPlayerItem, book: BookDetail, chapter: Chapter) {
+        #if os(iOS) || os(tvOS) || os(visionOS)
         item.nowPlayingInfo = nowPlayingDictionary(book: book, chapter: chapter)
+        #endif
     }
 
     private func configureRemoteCommands() {
@@ -404,15 +406,11 @@ final class PlaybackController {
 
     private func updateNowPlaying() {
         let info = nowPlayingDictionary()
-        player.currentItem?.nowPlayingInfo = info
-        let center: MPNowPlayingInfoCenter
         #if os(iOS) || os(tvOS) || os(visionOS)
-        center = nowPlayingSession.nowPlayingInfoCenter
-        #else
-        center = .default()
+        player.currentItem?.nowPlayingInfo = info
+        nowPlayingSession.nowPlayingInfoCenter.nowPlayingInfo = info
+        nowPlayingSession.nowPlayingInfoCenter.playbackState = isPlaying ? .playing : .paused
         #endif
-        center.nowPlayingInfo = info
-        center.playbackState = isPlaying ? .playing : .paused
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }

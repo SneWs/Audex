@@ -33,7 +33,44 @@ struct MainTabView: View {
     @Environment(PlaybackController.self) private var playback
     @State private var tab: AppTab = .library
 
+    private var showsMiniPlayer: Bool {
+        playback.currentBook != nil && !playback.isNowPlayingPresented
+    }
+
     var body: some View {
+        Group {
+            #if os(macOS)
+            VStack(spacing: 0) {
+                tabHost
+                if showsMiniPlayer {
+                    MiniPlayerBar()
+                }
+            }
+            #else
+            tabHost
+                .tabViewBottomAccessory(isEnabled: showsMiniPlayer) {
+                    MiniPlayerBar()
+                }
+            #endif
+        }
+        .audexNowPlayingCover(isPresented: Binding(
+            get: { playback.isNowPlayingPresented },
+            set: { playback.isNowPlayingPresented = $0 }
+        )) {
+            NowPlayingView()
+                .preferredColorScheme(session.prefersDarkMode ? .dark : .light)
+                .tint(AudexColor.primary)
+                #if os(macOS)
+                .frame(minWidth: 480, minHeight: 560)
+                #endif
+        }
+        .task {
+            await library.refresh()
+            await session.loadAccount()
+        }
+    }
+
+    private var tabHost: some View {
         TabView(selection: $tab) {
             Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
                 LibraryView(filter: .all)
@@ -55,20 +92,5 @@ struct MainTabView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .tabViewBottomAccessory(isEnabled: playback.currentBook != nil && !playback.isNowPlayingPresented) {
-            MiniPlayerBar()
-        }
-        .fullScreenCover(isPresented: Binding(
-            get: { playback.isNowPlayingPresented },
-            set: { playback.isNowPlayingPresented = $0 }
-        )) {
-            NowPlayingView()
-                .preferredColorScheme(session.prefersDarkMode ? .dark : .light)
-                .tint(AudexColor.primary)
-        }
-        .task {
-            await library.refresh()
-            await session.loadAccount()
-        }
     }
 }
