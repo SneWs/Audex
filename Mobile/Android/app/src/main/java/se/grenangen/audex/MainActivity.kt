@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.*
 import androidx.window.core.layout.WindowWidthSizeClass
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -19,6 +20,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.repository.AuthRepository
+import se.grenangen.audex.data.repository.BookRepository
 import se.grenangen.audex.util.AuthEvent
 import se.grenangen.audex.util.AuthEventBus
 import se.grenangen.audex.ui.composition.LocalServerUri
@@ -44,6 +46,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var authEventBus: AuthEventBus
 
+    @Inject
+    lateinit var bookRepository: BookRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -52,103 +57,124 @@ class MainActivity : ComponentActivity() {
             val isDarkMode by settingsManager.darkMode.collectAsState()
             CompositionLocalProvider(LocalServerUri provides (serverUri ?: "")) {
                 AudexTheme(darkTheme = isDarkMode) {
-                val navController = rememberNavController()
+                var initialDestination by remember { mutableStateOf<String?>(null) }
 
-                LaunchedEffect(navController) {
-                    authEventBus.events.collect { event ->
-                        when (event) {
-                            is AuthEvent.SessionExpired -> {
-                                navController.navigate(Screen.Login.createRoute(event.message)) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
-                        }
+                LaunchedEffect(serverUri) {
+                    val currentServerUri = settingsManager.getServerUri()
+                    if (!settingsManager.isValidUri(currentServerUri)) {
+                        initialDestination = Screen.ServerSettings.route
+                    } else if (!authRepository.isLoggedIn()) {
+                        initialDestination = Screen.Login.route
+                    } else {
+                        val result = bookRepository.getBooks()
+                        val hasContinueBooks = result.getOrNull()?.any { it.isStarted && !it.isCompleted } == true
+                        initialDestination = if (hasContinueBooks) Screen.Continue.route else Screen.Library.route
                     }
                 }
 
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
-
-                val startDestination = when {
-                    !settingsManager.isValidUri(settingsManager.getServerUri()) -> Screen.ServerSettings.route
-                    authRepository.isLoggedIn() -> Screen.Library.route
-                    else -> Screen.Login.route
-                }
-
-                val topLevelRoutes = Screen.NavItems.topLevelDestinations.map { it.route }
-                val isTopLevelDestination = currentDestination?.route in topLevelRoutes
-
-                val drawerState = remember(currentDestination?.route) { DrawerState(DrawerValue.Closed) }
-                val scope = rememberCoroutineScope()
-
-                val navigationContent = @Composable {
-                    Spacer(Modifier.height(12.dp))
-                    Screen.NavItems.topLevelDestinations.forEach { screen ->
-                        NavigationDrawerItem(
-                            icon = { screen.icon?.let { Icon(it, contentDescription = null) } },
-                            label = { Text(screen.title) },
-                            selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
-                            onClick = {
-                                scope.launch { drawerState.close() }
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                        )
-                    }
-                }
-
-                val adaptiveInfo = currentWindowAdaptiveInfo()
-                val usePermanentDrawer = adaptiveInfo.windowSizeClass.windowWidthSizeClass != WindowWidthSizeClass.COMPACT
-
-                if (usePermanentDrawer && isTopLevelDestination) {
-                    PermanentNavigationDrawer(
-                        drawerContent = {
-                            PermanentDrawerSheet(
-                                modifier = Modifier.width(240.dp),
-                                windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
-                            ) {
-                                navigationContent()
-                            }
-                        }
+                if (initialDestination == null) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        AppContent(
-                            navController = navController,
-                            playbackManager = playbackManager,
-                            startDestination = startDestination,
-                            currentDestination = currentDestination,
-                            onMenuClick = null
-                        )
+                        CircularProgressIndicator()
                     }
                 } else {
-                    ModalNavigationDrawer(
-                        drawerState = drawerState,
-                        gesturesEnabled = isTopLevelDestination,
-                        drawerContent = {
-                            if (isTopLevelDestination) {
-                                ModalDrawerSheet(
+                    val startDestination = initialDestination!!
+                    val navController = rememberNavController()
+
+                    LaunchedEffect(navController) {
+                        authEventBus.events.collect { event ->
+                            when (event) {
+                                is AuthEvent.SessionExpired -> {
+                                    navController.navigate(Screen.Login.createRoute(event.message)) {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentDestination = navBackStackEntry?.destination
+
+                    val topLevelRoutes = Screen.NavItems.topLevelDestinations.map { it.route }
+                    val isTopLevelDestination = currentDestination?.route in topLevelRoutes
+
+                    val drawerState = remember(currentDestination?.route) { DrawerState(DrawerValue.Closed) }
+                    val scope = rememberCoroutineScope()
+
+                    val navigationContent = @Composable {
+                        Spacer(Modifier.height(12.dp))
+                        Screen.NavItems.topLevelDestinations.forEach { screen ->
+                            NavigationDrawerItem(
+                                icon = { screen.icon?.let { Icon(it, contentDescription = null) } },
+                                label = { Text(screen.title) },
+                                selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true,
+                                onClick = {
+                                    scope.launch { drawerState.close() }
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                            )
+                        }
+                    }
+
+                    val adaptiveInfo = currentWindowAdaptiveInfo()
+                    val usePermanentDrawer = adaptiveInfo.windowSizeClass.windowWidthSizeClass != WindowWidthSizeClass.COMPACT
+
+                    if (usePermanentDrawer && isTopLevelDestination) {
+                        PermanentNavigationDrawer(
+                            drawerContent = {
+                                PermanentDrawerSheet(
                                     modifier = Modifier.width(240.dp),
                                     windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
                                 ) {
                                     navigationContent()
                                 }
                             }
+                        ) {
+                            AppContent(
+                                navController = navController,
+                                playbackManager = playbackManager,
+                                bookRepository = bookRepository,
+                                startDestination = startDestination,
+                                currentDestination = currentDestination,
+                                onMenuClick = null
+                            )
                         }
-                    ) {
-                        AppContent(
-                            navController = navController,
-                            playbackManager = playbackManager,
-                            startDestination = startDestination,
-                            currentDestination = currentDestination,
-                            onMenuClick = if (isTopLevelDestination) {
-                                { scope.launch { drawerState.open() } }
-                            } else null
-                        )
+                    } else {
+                        ModalNavigationDrawer(
+                            drawerState = drawerState,
+                            gesturesEnabled = isTopLevelDestination,
+                            drawerContent = {
+                                if (isTopLevelDestination) {
+                                    ModalDrawerSheet(
+                                        modifier = Modifier.width(240.dp),
+                                        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical)
+                                    ) {
+                                        navigationContent()
+                                    }
+                                }
+                            }
+                        ) {
+                            AppContent(
+                                navController = navController,
+                                playbackManager = playbackManager,
+                                bookRepository = bookRepository,
+                                startDestination = startDestination,
+                                currentDestination = currentDestination,
+                                onMenuClick = if (isTopLevelDestination) {
+                                    { scope.launch { drawerState.open() } }
+                                } else null
+                            )
+                        }
                     }
                 }
                 }
@@ -161,6 +187,7 @@ class MainActivity : ComponentActivity() {
 fun AppContent(
     navController: androidx.navigation.NavHostController,
     playbackManager: PlaybackManager,
+    bookRepository: BookRepository,
     startDestination: String,
     currentDestination: androidx.navigation.NavDestination?,
     onMenuClick: (() -> Unit)?
@@ -185,6 +212,7 @@ fun AppContent(
     ) { innerPadding ->
         AudexNavGraph(
             navController = navController,
+            bookRepository = bookRepository,
             startDestination = startDestination,
             onMenuClick = onMenuClick,
             modifier = Modifier.padding(innerPadding)

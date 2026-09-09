@@ -26,7 +26,7 @@ class AuthRepository @Inject constructor(
         return try {
             val parts = token.split(".")
             if (parts.size != 3) return null
-            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE))
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
             val jsonObject = json.parseToJsonElement(payload).jsonObject
             jsonObject["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"]?.jsonPrimitive?.content
                 ?: jsonObject["sub"]?.jsonPrimitive?.content

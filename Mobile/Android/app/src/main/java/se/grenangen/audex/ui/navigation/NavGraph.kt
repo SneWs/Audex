@@ -7,6 +7,9 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import se.grenangen.audex.data.repository.BookRepository
 import se.grenangen.audex.ui.screen.detail.BookDetailScreen
 import se.grenangen.audex.ui.screen.library.LibraryScreen
 import se.grenangen.audex.ui.screen.library.LibraryType
@@ -18,6 +21,7 @@ import se.grenangen.audex.ui.screen.settings.SettingsScreen
 @Composable
 fun AudexNavGraph(
     navController: NavHostController,
+    bookRepository: BookRepository,
     startDestination: String,
     onMenuClick: (() -> Unit)?,
     modifier: Modifier = Modifier
@@ -55,11 +59,17 @@ fun AudexNavGraph(
             })
         ) { backStackEntry ->
             val message = backStackEntry.arguments?.getString("message")
+            val scope = rememberCoroutineScope()
             LoginScreen(
                 message = message,
                 onLoginSuccess = {
-                    navController.navigate(Screen.Library.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
+                    scope.launch {
+                        val result = bookRepository.getBooks()
+                        val hasContinueBooks = result.getOrNull()?.any { it.isStarted && !it.isCompleted } == true
+                        val targetRoute = if (hasContinueBooks) Screen.Continue.route else Screen.Library.route
+                        navController.navigate(targetRoute) {
+                            popUpTo(Screen.Login.route) { inclusive = true }
+                        }
                     }
                 }
             )

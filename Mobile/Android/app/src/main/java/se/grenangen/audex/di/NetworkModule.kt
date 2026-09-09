@@ -15,6 +15,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
 import se.grenangen.audex.data.local.SettingsManager
 import se.grenangen.audex.data.local.TokenManager
 import se.grenangen.audex.data.model.AuthResponse
@@ -36,11 +37,18 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): okhttp3.OkHttpClient {
-        return okhttp3.OkHttpClient.Builder()
+    fun provideOkHttpClient(tokenManager: TokenManager): OkHttpClient {
+        return OkHttpClient.Builder()
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .addInterceptor { chain ->
+                val requestBuilder = chain.request().newBuilder()
+                tokenManager.getToken()?.let { token ->
+                    requestBuilder.header("Authorization", "Bearer $token")
+                }
+                chain.proceed(requestBuilder.build())
+            }
             .build()
     }
 
@@ -78,16 +86,10 @@ object NetworkModule {
                 if (!isAuthRequest) {
                     if (!isRefreshRequest && tokenManager.isTokenNearExpiry()) {
                         try {
-                            val serverUri = settingsManager.getServerUri()
-                            if (serverUri != null) {
-                                val refreshUrl = URLBuilder(serverUri).apply {
-                                    appendPathSegments("api", "refresh")
-                                }.build()
-                                val refreshResponse = client.post(refreshUrl)
-                                if (refreshResponse.status == HttpStatusCode.OK) {
-                                    val authResponse = refreshResponse.body<AuthResponse>()
-                                    tokenManager.saveToken(authResponse.token)
-                                }
+                            val refreshResponse = client.post("refresh")
+                            if (refreshResponse.status == HttpStatusCode.OK) {
+                                val authResponse = refreshResponse.body<AuthResponse>()
+                                tokenManager.saveToken(authResponse.token)
                             }
                         } catch (e: Exception) {
                             android.util.Log.e("NetworkModule", "Failed to refresh token", e)

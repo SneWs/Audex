@@ -2,6 +2,7 @@ package se.grenangen.audex.data.local
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -24,18 +25,19 @@ class TokenManager @Inject constructor(
     }
 
     fun isTokenNearExpiry(thresholdMinutes: Int = 5): Boolean {
-        val token = getToken() ?: return true
+        val token = getToken() ?: return false
         return try {
             val parts = token.split(".")
-            if (parts.size != 3) return true
-            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE))
+            if (parts.size != 3) return false
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
             val jsonObject = json.parseToJsonElement(payload).jsonObject
-            val exp = jsonObject["exp"]?.jsonPrimitive?.long ?: return true
+            val exp = jsonObject["exp"]?.jsonPrimitive?.long ?: return false
             val nowSeconds = System.currentTimeMillis() / 1000
             val thresholdSeconds = thresholdMinutes * 60
             exp < (nowSeconds + thresholdSeconds)
         } catch (e: Exception) {
-            true
+            Log.e("TokenManager", "Error checking token expiry", e)
+            false
         }
     }
 }
