@@ -85,6 +85,39 @@ The API automatically enriches book metadata from Google Books and Open Library 
 dotnet build
 ```
 
+### Publishing the Android APK
+
+The `Android APK` GitHub Actions workflow builds a signed release APK for every push to `master` that changes files under `Mobile/Android/`. It stores the APK in the workflow run artifacts and updates the `android-latest` GitHub release. The workflow can also be started manually from the Actions page.
+
+Generate a free self-signed keystore on macOS. Use the same password when prompted for the keystore and key:
+
+```bash
+mkdir -p ~/audex-signing
+keytool -genkeypair -v \
+   -keystore ~/audex-signing/audex-release.jks \
+   -alias audex \
+   -keyalg RSA \
+   -keysize 4096 \
+   -validity 10000
+```
+
+If `keytool` is unavailable, install a JDK with `brew install --cask temurin@17`, then open a new terminal. Encode the keystore and copy it to the clipboard:
+
+```bash
+base64 < ~/audex-signing/audex-release.jks | tr -d '\n' | pbcopy
+```
+
+In the GitHub repository, open **Settings > Secrets and variables > Actions**, select **New repository secret**, and create these secrets:
+
+| Secret | Value |
+|--------|-------|
+| `ANDROID_KEYSTORE_BASE64` | Paste the clipboard contents from the command above |
+| `ANDROID_KEYSTORE_PASSWORD` | The keystore password entered in `keytool` |
+| `ANDROID_KEY_ALIAS` | `audex` |
+| `ANDROID_KEY_PASSWORD` | The key password entered in `keytool` |
+
+Keep `~/audex-signing/audex-release.jks` and its passwords backed up securely. Every future update must use this same key; losing it prevents the new APK from updating an existing installation.
+
 ### Adding a Migration
 
 ```bash
