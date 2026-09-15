@@ -1,5 +1,6 @@
 package se.grenangen.audex.di
 
+import android.util.Log
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -84,18 +85,6 @@ object NetworkModule {
                 val isRefreshRequest = path.endsWith("/refresh")
 
                 if (!isAuthRequest) {
-                    if (!isRefreshRequest && tokenManager.isTokenNearExpiry()) {
-                        try {
-                            val refreshResponse = client.post("refresh")
-                            if (refreshResponse.status == HttpStatusCode.OK) {
-                                val authResponse = refreshResponse.body<AuthResponse>()
-                                tokenManager.saveToken(authResponse.token)
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("NetworkModule", "Failed to refresh token", e)
-                        }
-                    }
-
                     tokenManager.getToken()?.let { token ->
                         request.headers[HttpHeaders.Authorization] = "Bearer $token"
                     }
@@ -112,11 +101,35 @@ object NetworkModule {
                     request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
                 }
 
-                val response = execute(request)
+                var response = execute(request)
                 
-                if (response.response.status == HttpStatusCode.Unauthorized && !isAuthRequest) {
-                    tokenManager.saveToken(null)
-                    authEventBus.tryEmit(AuthEvent.SessionExpired("Session expired. Please log in again."))
+                if (response.response.status == HttpStatusCode.Unauthorized && !isAuthRequest && !isRefreshRequest) {
+                    try {
+                        val refreshResponse = client.post("refresh")
+                        if (refreshResponse.status == HttpStatusCode.OK) {
+                            val authResponse = refreshResponse.body<AuthResponse>()
+                            tokenManager.saveToken(authResponse.token)
+                            
+                            tokenManager.getToken()?.let { token ->
+                                request.headers[HttpHeaders.Authorization] = "Bearer $token"
+                            }
+                            if (serverUri != null) {
+                                val baseUrl = Url(serverUri)
+                                val requestPath = request.url.encodedPath.removePrefix("/")
+                                request.url.takeFrom(baseUrl)
+                                val basePath = baseUrl.encodedPath.removeSuffix("/")
+                                request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
+                            }
+                            response = execute(request)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("NetworkModule", "Failed to refresh token on 401", e)
+                    }
+
+                    if (response.response.status == HttpStatusCode.Unauthorized) {
+                        tokenManager.saveToken(null)
+                        authEventBus.tryEmit(AuthEvent.SessionExpired("Session expired. Please log in again."))
+                    }
                 }
 
                 response
