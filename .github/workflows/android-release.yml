@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - "Mobile/Android/**"
+      - ".github/workflows/android-release.yml"
   workflow_dispatch:
     inputs:
       release_tag:
