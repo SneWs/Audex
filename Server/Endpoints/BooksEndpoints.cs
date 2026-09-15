@@ -273,6 +273,44 @@ public static class BooksEndpoints
         .WithSummary("Get the cover image for a book (extracted from its audio tags)")
         .Produces(StatusCodes.Status200OK, contentType: "image/jpeg")
         .Produces(StatusCodes.Status404NotFound);
+
+        books.MapPut("/api/books/{id:int}/complete", async (int id, AppDbContext db, ClaimsPrincipal principal) =>
+        {
+            var userId = principal.GetUserId();
+            var book = await db.Books
+                .Include(b => b.Chapters)
+                .FirstOrDefaultAsync(b => b.Id == id);
+            if (book is null) return Results.NotFound();
+
+            var lastChapter = book.Chapters.OrderBy(c => c.TrackNumber).ThenBy(c => c.FilePath).LastOrDefault();
+            if (lastChapter is null) return Results.BadRequest("Book has no chapters.");
+
+            var progress = await db.Progress.FirstOrDefaultAsync(p => p.UserId == userId && p.BookId == id);
+            if (progress is null)
+            {
+                progress = new Progress
+                {
+                    UserId = userId,
+                    BookId = id,
+                    ChapterId = lastChapter.Id,
+                    PositionSec = lastChapter.DurationSec,
+                    UpdatedAt = DateTime.UtcNow
+                };
+                db.Progress.Add(progress);
+            }
+            else
+            {
+                progress.ChapterId = lastChapter.Id;
+                progress.PositionSec = lastChapter.DurationSec;
+                progress.UpdatedAt = DateTime.UtcNow;
+            }
+            await db.SaveChangesAsync();
+            return Results.Ok(new MessageResponse("Book marked as complete."));
+        })
+        .RequireAuthorization()
+        .WithSummary("Mark an audiobook as complete")
+        .Produces<MessageResponse>()
+        .Produces(StatusCodes.Status404NotFound);
     }
 
     static (int ProgressSec, bool Completed) ComputeProgress(List<Chapter> orderedChapters, Progress p)
