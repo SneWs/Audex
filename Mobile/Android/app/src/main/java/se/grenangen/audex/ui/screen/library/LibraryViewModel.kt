@@ -89,4 +89,16 @@ class LibraryViewModel @Inject constructor(
             }
         }
     }
+
+    fun completeBook(bookId: Int) {
+        viewModelScope.launch {
+            _books.value = _books.value.map {
+                if (it.id == bookId) it.copy(isCompleted = true, progressSec = it.durationSec) else it
+            }
+            val result = bookRepository.completeBook(bookId)
+            result.onFailure {
+                loadBooks()
+            }
+        }
+    }
 }

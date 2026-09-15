@@ -48,4 +48,13 @@ class BookRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    suspend fun completeBook(id: Int): Result<Unit> {
+        return try {
+            apiService.completeBook(id)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

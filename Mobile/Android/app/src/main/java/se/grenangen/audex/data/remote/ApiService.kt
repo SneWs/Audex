@@ -38,4 +38,16 @@ class ApiService @Inject constructor(
 
     suspend fun unfavoriteBook(id: Int) =
         client.delete("books/$id/favorite")
+
+    suspend fun completeBook(id: Int) {
+        try {
+            client.put("books/$id/complete")
+        } catch (e: Exception) {
+            try {
+                client.post("books/$id/complete")
+            } catch (e2: Exception) {
+                client.put("books/$id/completed")
+            }
+        }
+    }
 }

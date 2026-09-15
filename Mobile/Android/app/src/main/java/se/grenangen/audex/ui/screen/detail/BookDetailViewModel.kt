@@ -55,6 +55,17 @@ class BookDetailViewModel @Inject constructor(
         }
     }
 
+    fun completeBook() {
+        val book = _book.value ?: return
+        viewModelScope.launch {
+            _book.value = book.copy(isCompleted = true, progressSec = book.durationSec)
+            val result = bookRepository.completeBook(book.id)
+            result.onFailure {
+                loadBook()
+            }
+        }
+    }
+
     fun downloadBookForOffline() {
         val book = _book.value ?: return
         if (_downloadState.value is DownloadState.Downloading) return

@@ -33,6 +33,7 @@ fun BookGrid(
     onBookClick: (Int) -> Unit,
     onPlayClick: (Int) -> Unit,
     onFavoriteClick: (Int) -> Unit,
+    onCompleteClick: (Int) -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     modifier: Modifier = Modifier
 ) {
@@ -50,7 +51,8 @@ fun BookGrid(
                 isPlaying = isThisBookPlaying,
                 onClick = { onBookClick(book.id) },
                 onPlayClick = { onPlayClick(book.id) },
-                onFavoriteClick = { onFavoriteClick(book.id) }
+                onFavoriteClick = { onFavoriteClick(book.id) },
+                onCompleteClick = { onCompleteClick(book.id) }
             )
         }
     }
@@ -62,7 +64,8 @@ fun BookItem(
     isPlaying: Boolean,
     onClick: () -> Unit, 
     onPlayClick: () -> Unit,
-    onFavoriteClick: () -> Unit
+    onFavoriteClick: () -> Unit,
+    onCompleteClick: () -> Unit
 ) {
     val serverUri = LocalServerUri.current
     val isStarted = book.isStarted && !book.isCompleted
@@ -174,30 +177,49 @@ fun BookItem(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Action Button
-            Button(
-                onClick = onPlayClick,
-                modifier = Modifier.widthIn(min = 120.dp),
-                shape = RoundedCornerShape(4.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                ),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = when {
-                        isPlaying -> "PAUSE"
-                        isStarted -> "CONTINUE"
-                        else -> "PLAY"
-                    },
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
+                Button(
+                    onClick = onPlayClick,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = when {
+                            isPlaying -> "PAUSE"
+                            isStarted -> "CONTINUE"
+                            else -> "PLAY"
+                        },
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                if (isStarted) {
+                    OutlinedButton(
+                        onClick = onCompleteClick,
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Mark as complete",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
             }
         }
     }

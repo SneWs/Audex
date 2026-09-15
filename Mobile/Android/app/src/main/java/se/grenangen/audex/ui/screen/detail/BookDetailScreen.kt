@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
@@ -107,6 +108,17 @@ fun BookDetailScreen(
                                 text = detail.description?.let(HtmlUtils::toPlainText).orEmpty(),
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            val isStarted = !detail.isCompleted && (detail.resumePositionSec > 0 || detail.resumeChapterId != null || detail.lastPlayedAt != null)
+                            if (isStarted) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedButton(
+                                    onClick = viewModel::completeBook,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text("Mark as complete")
+                                }
+                            }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(text = "Chapters", style = MaterialTheme.typography.titleLarge)
                         }

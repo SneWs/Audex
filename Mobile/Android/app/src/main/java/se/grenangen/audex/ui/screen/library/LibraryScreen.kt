@@ -90,6 +90,9 @@ fun LibraryScreen(
                     onFavoriteClick = { bookId ->
                         viewModel.toggleFavorite(bookId)
                     },
+                    onCompleteClick = { bookId ->
+                        viewModel.completeBook(bookId)
+                    },
                     contentPadding = padding
                 )
             }
