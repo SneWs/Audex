@@ -158,8 +158,11 @@ class PlaybackManager @Inject constructor(
         val targetPositionMs = positionMs ?: (book.resumePositionSec * 1000L)
 
         _currentChapterIndex.value = targetChapterIndex
-        c.setMediaItems(mediaItems, targetChapterIndex, targetPositionMs)
+        c.setMediaItems(mediaItems, targetChapterIndex, 0L)
         c.prepare()
+        if (targetPositionMs > 0L) {
+            c.seekTo(targetPositionMs)
+        }
         c.play()
     }
 
