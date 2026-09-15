@@ -32,6 +32,9 @@ class SearchViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    var scrollIndex = 0
+    var scrollOffset = 0
+
     val currentBook = playbackManager.currentBook
     val isPlaying = playbackManager.isPlaying
 

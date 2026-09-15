@@ -1,6 +1,7 @@
 package se.grenangen.audex.ui.screen.search
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
@@ -57,6 +58,19 @@ fun SearchScreen(
                 Text("No results found for \"$query\"")
             }
         } else {
+            val gridState = rememberLazyGridState(
+                initialFirstVisibleItemIndex = viewModel.scrollIndex,
+                initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
+            )
+
+            LaunchedEffect(gridState) {
+                snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+                    .collect { (index, offset) ->
+                        viewModel.scrollIndex = index
+                        viewModel.scrollOffset = offset
+                    }
+            }
+
             BookGrid(
                 books = results,
                 currentBookId = currentBook?.id,
@@ -65,7 +79,8 @@ fun SearchScreen(
                 onPlayClick = viewModel::playBook,
                 onFavoriteClick = viewModel::toggleFavorite,
                 onCompleteClick = viewModel::completeBook,
-                contentPadding = padding
+                contentPadding = padding,
+                state = gridState
             )
         }
     }

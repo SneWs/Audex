@@ -30,6 +30,9 @@ class LibraryViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    var scrollIndex = 0
+    var scrollOffset = 0
+
     val currentBook = playbackManager.currentBook
     val isPlaying = playbackManager.isPlaying
 

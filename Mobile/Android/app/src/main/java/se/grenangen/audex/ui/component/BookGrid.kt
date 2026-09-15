@@ -35,10 +35,12 @@ fun BookGrid(
     onFavoriteClick: (Int) -> Unit,
     onCompleteClick: (Int) -> Unit,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    state: LazyGridState = rememberLazyGridState()
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(320.dp),
+        state = state,
         contentPadding = contentPadding,
         modifier = modifier.padding(8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),

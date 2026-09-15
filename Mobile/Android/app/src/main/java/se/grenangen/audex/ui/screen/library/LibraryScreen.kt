@@ -1,6 +1,7 @@
 package se.grenangen.audex.ui.screen.library
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
@@ -72,6 +73,19 @@ fun LibraryScreen(
                 }
             }
             else -> {
+                val gridState = rememberLazyGridState(
+                    initialFirstVisibleItemIndex = viewModel.scrollIndex,
+                    initialFirstVisibleItemScrollOffset = viewModel.scrollOffset
+                )
+
+                LaunchedEffect(gridState) {
+                    snapshotFlow { gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset }
+                        .collect { (index, offset) ->
+                            viewModel.scrollIndex = index
+                            viewModel.scrollOffset = offset
+                        }
+                }
+
                 BookGrid(
                     books = books,
                     currentBookId = currentBook?.id,
@@ -93,7 +107,8 @@ fun LibraryScreen(
                     onCompleteClick = { bookId ->
                         viewModel.completeBook(bookId)
                     },
-                    contentPadding = padding
+                    contentPadding = padding,
+                    state = gridState
                 )
             }
         }
