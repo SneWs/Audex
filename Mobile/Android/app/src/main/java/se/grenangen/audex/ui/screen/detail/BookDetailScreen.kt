@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import se.grenangen.audex.ui.component.TagItem
 import se.grenangen.audex.util.HtmlUtils
 import se.grenangen.audex.util.TimeUtils
 
@@ -78,6 +80,18 @@ fun BookDetailScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            if (!detail.genres.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                @OptIn(ExperimentalLayoutApi::class)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    detail.genres.forEach { genre ->
+                                        TagItem(icon = Icons.AutoMirrored.Filled.Label, text = genre)
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                             when (val state = downloadState) {
                                 is BookDetailViewModel.DownloadState.Downloading -> {

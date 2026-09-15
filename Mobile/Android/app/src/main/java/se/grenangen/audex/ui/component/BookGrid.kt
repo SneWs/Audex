@@ -149,7 +149,7 @@ fun BookItem(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 maxLines = 1
             ) {
-                book.genres?.forEach { genre ->
+                book.genres?.take(3)?.forEach { genre ->
                     TagItem(icon = Icons.AutoMirrored.Filled.Label, text = genre)
                 }
             }
@@ -252,7 +252,7 @@ private fun MetadataItem(icon: ImageVector, text: String) {
 }
 
 @Composable
-private fun TagItem(icon: ImageVector, text: String) {
+fun TagItem(icon: ImageVector, text: String) {
     Surface(
         color = Color.Transparent,
         shape = RoundedCornerShape(16.dp),
