@@ -182,6 +182,37 @@
                     }
                 </MudPaper>
 
+                <MudPaper Outlined="true" Class="pa-3">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Playlists</MudText>
+                    @if (_playlistsLoading)
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    else if (_availablePlaylists.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                            @(_playlists.Count == 0 ? "Create a playlist to add this book." : "This book is already in all of your playlists.")
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudSelect T="int" @bind-Value="_playlistToAddId" Label="Add to playlist"
+                                       Variant="Variant.Outlined" Style="min-width:250px;"
+                                       Disabled="_savingPlaylist">
+                                @foreach (var playlist in _availablePlaylists)
+                                {
+                                    <MudSelectItem T="int" Value="@playlist.Id">@playlist.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="AddToPlaylistAsync"
+                                       Disabled="_savingPlaylist || _playlistToAddId == 0">
+                                @(_savingPlaylist ? "Adding..." : "Add")
+                            </MudButton>
+                        </MudStack>
+                    }
+                </MudPaper>
+
                 <MudExpansionPanels>
                     <MudExpansionPanel Text="Chapter List">
                         @if (_book.Chapters.Count == 0)
@@ -235,11 +266,22 @@
     bool _loading = true;
     bool _rescanning;
     bool _savingCustomTitle;
+    bool _playlistsLoading = true;
+    bool _savingPlaylist;
     string? _customTitleInput;
     bool _bookChanged;
     string? _error;
+    List<PlaylistDto> _playlists = new();
+    int _playlistToAddId;
 
-    protected override Task OnInitializedAsync() => LoadBookAsync();
+    List<PlaylistDto> _availablePlaylists => _book is null
+        ? new()
+        : _playlists.Where(playlist => playlist.Books.All(book => book.Id != _book.Id)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadBookAsync(), LoadPlaylistsAsync());
+    }
 
     async Task LoadBookAsync()
     {
@@ -261,6 +303,62 @@
         finally
         {
             _loading = false;
+        }
+    }
+
+    async Task LoadPlaylistsAsync()
+    {
+        _playlistsLoading = true;
+        try
+        {
+            _playlists = (await Http.GetFromJsonAsync<PlaylistDto[]>("/api/playlists") ?? Array.Empty<PlaylistDto>()).ToList();
+        }
+        catch
+        {
+            _playlists = new();
+        }
+        finally
+        {
+            _playlistsLoading = false;
+        }
+    }
+
+    async Task AddToPlaylistAsync()
+    {
+        if (_book is null || _playlistToAddId == 0)
+            return;
+
+        var playlist = _playlists.SingleOrDefault(candidate => candidate.Id == _playlistToAddId);
+        if (playlist is null)
+            return;
+
+        _savingPlaylist = true;
+        try
+        {
+            var request = new PlaylistRequest
+            {
+                Name = playlist.Name,
+                BookIds = [.. playlist.Books.Select(book => book.Id), _book.Id]
+            };
+            var response = await Http.PutAsJsonAsync($"/api/playlists/{playlist.Id}", request);
+            if (response.IsSuccessStatusCode)
+            {
+                playlist.Books.Add(_book);
+                _playlistToAddId = 0;
+                Snackbar.Add($"Added to {playlist.Name}.", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Unable to add this book to the playlist.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to add this book to the playlist.", Severity.Error);
+        }
+        finally
+        {
+            _savingPlaylist = false;
         }
     }
 

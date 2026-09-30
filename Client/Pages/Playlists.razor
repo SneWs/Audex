@@ -4,6 +4,7 @@
 @attribute [Authorize]
 @inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject AudioPlayerService Player
 
 <div class="d-flex align-center mb-4">
     <div>
@@ -29,14 +30,11 @@ else if (_editing is not null)
                       Required="true" MaxLength="200" Class="mb-4" Style="max-width:500px;" />
 
         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
-            <MudSelect T="int" @bind-Value="_bookToAdd" Label="Add a book" Variant="Variant.Outlined"
-                       Style="min-width:300px;" Disabled="@(_availableBooks.Count == 0)">
-                @foreach (var book in _availableBooks)
-                {
-                    <MudSelectItem T="int" Value="@book.Id">@book.Title — @book.Author</MudSelectItem>
-                }
-            </MudSelect>
-            <MudButton Variant="Variant.Outlined" OnClick="AddBook" Disabled="@(_bookToAdd == 0)">
+            <MudAutocomplete T="BookDto" @bind-Value="_bookToAdd" SearchFunc="SearchBooks"
+                             ToStringFunc="@(book => book is null ? string.Empty : $"{book.Title} — {book.Author}")"
+                             Label="Search books to add" Variant="Variant.Outlined" Clearable="true"
+                             Style="min-width:300px;" Disabled="@(_availableBooks.Count == 0)" />
+            <MudButton Variant="Variant.Outlined" OnClick="AddBook" Disabled="@(_bookToAdd is null)">
                 Add
             </MudButton>
         </MudStack>
@@ -96,7 +94,21 @@ else
                     </div>
                     @if (playlist.Books.Count > 0)
                     {
-                        <MudText Typo="Typo.body2" Class="mt-3 text-truncate">@playlist.Books[0].Title</MudText>
+                        <MudList T="BookDto" Dense="true" Class="mt-3">
+                            @for (var index = 0; index < playlist.Books.Count; index++)
+                            {
+                                var position = index;
+                                var book = playlist.Books[position];
+                                <MudListItem T="BookDto" Value="@book">
+                                    <MudText Typo="Typo.body2">@($"{position + 1}. {book.Title}")</MudText>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@book.Author</MudText>
+                                    <MudSpacer />
+                                    <MudButton Size="Size.Small" Variant="Variant.Text"
+                                               StartIcon="@Icons.Material.Filled.PlayArrow"
+                                               OnClick="@(() => PlayAsync(book))">Play</MudButton>
+                                </MudListItem>
+                            }
+                        </MudList>
                     }
                     <div class="mt-4">
                         <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Edit"
@@ -115,7 +127,7 @@ else
     List<BookDto> _libraryBooks = new();
     PlaylistDto? _editing;
     string _editingName = string.Empty;
-    int _bookToAdd;
+    BookDto? _bookToAdd;
     bool _loading = true;
     bool _saving;
 
@@ -148,7 +160,7 @@ else
     {
         _editing = new PlaylistDto();
         _editingName = string.Empty;
-        _bookToAdd = 0;
+        _bookToAdd = null;
     }
 
     void EditPlaylist(PlaylistDto playlist)
@@ -162,18 +174,18 @@ else
             Books = playlist.Books.ToList()
         };
         _editingName = playlist.Name;
-        _bookToAdd = 0;
+        _bookToAdd = null;
     }
 
     void AddBook()
     {
-        if (_editing is null || _bookToAdd == 0)
+        if (_editing is null || _bookToAdd is null)
             return;
 
-        var book = _libraryBooks.SingleOrDefault(book => book.Id == _bookToAdd);
+        var book = _bookToAdd;
         if (book is not null)
             _editing.Books.Add(book);
-        _bookToAdd = 0;
+        _bookToAdd = null;
     }
 
     void MoveBook(int index, int offset)
@@ -189,6 +201,21 @@ else
     }
 
     void RemoveBook(int index) => _editing?.Books.RemoveAt(index);
+
+    Task<IEnumerable<BookDto>> SearchBooks(string? searchText, CancellationToken cancellationToken)
+    {
+        var query = _availableBooks.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            query = query.Where(book =>
+                book.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                book.Author.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Task.FromResult(query);
+    }
+
+    Task PlayAsync(BookDto book) => Player.PlayAsync(book.Id);
 
     async Task SaveAsync()
     {
