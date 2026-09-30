@@ -15,6 +15,7 @@ fun LoginScreen(
     message: String? = null,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
+    val serverUri by viewModel.serverUri.collectAsState()
     val email by viewModel.email.collectAsState()
     val password by viewModel.password.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -35,6 +36,15 @@ fun LoginScreen(
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+        OutlinedTextField(
+            value = serverUri,
+            onValueChange = viewModel::onServerUriChange,
+            label = { Text("Server URI") },
+            placeholder = { Text("https://your-server.com/api") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
             value = email,
             onValueChange = viewModel::onEmailChange,
