@@ -16,6 +16,7 @@ import se.grenangen.audex.ui.screen.library.LibraryType
 import se.grenangen.audex.ui.screen.login.LoginScreen
 import se.grenangen.audex.ui.screen.player.PlayerScreen
 import se.grenangen.audex.ui.screen.playlists.PlaylistsScreen
+import se.grenangen.audex.ui.screen.playlists.SeriesDetailScreen
 import se.grenangen.audex.ui.screen.search.SearchScreen
 import se.grenangen.audex.ui.screen.settings.SettingsScreen
 
@@ -112,7 +113,23 @@ fun AudexNavGraph(
             )
         }
         composable(Screen.Playlists.route) {
-            PlaylistsScreen(onMenuClick = onMenuClick)
+            PlaylistsScreen(
+                onMenuClick = onMenuClick,
+                onSeriesClick = { playlistId ->
+                    navController.navigate(Screen.SeriesDetail.createRoute(playlistId))
+                }
+            )
+        }
+        composable(
+            route = Screen.SeriesDetail.route,
+            arguments = listOf(navArgument("playlistId") { type = NavType.IntType })
+        ) {
+            SeriesDetailScreen(
+                onBackClick = { navController.popBackStack() },
+                onBookClick = { bookId ->
+                    navController.navigate(Screen.BookDetail.createRoute(bookId))
+                }
+            )
         }
         composable(
             route = Screen.BookDetail.route,

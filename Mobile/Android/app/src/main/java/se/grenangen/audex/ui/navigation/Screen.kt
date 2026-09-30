@@ -15,7 +15,10 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     object Recents : Screen("recents", "Recents", Icons.Default.NewReleases)
     object Continue : Screen("continue", "Continue", Icons.Default.PlayCircleOutline)
     object Favorites : Screen("favorites", "Favorites", Icons.Default.Favorite)
-    object Playlists : Screen("playlists", "Playlists", Icons.AutoMirrored.Filled.QueueMusic)
+    object Playlists : Screen("series", "Series", Icons.AutoMirrored.Filled.QueueMusic)
+    object SeriesDetail : Screen("series/{playlistId}", "Series") {
+        fun createRoute(playlistId: Int) = "series/$playlistId"
+    }
     object BookDetail : Screen("book_detail/{bookId}") {
         fun createRoute(bookId: Int) = "book_detail/$bookId"
     }

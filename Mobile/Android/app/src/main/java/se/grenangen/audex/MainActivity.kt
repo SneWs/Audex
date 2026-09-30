@@ -6,9 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.*
-import androidx.window.core.layout.WindowWidthSizeClass
+import androidx.window.core.layout.WindowSizeClass
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -126,8 +126,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    val adaptiveInfo = currentWindowAdaptiveInfo()
-                    val usePermanentDrawer = adaptiveInfo.windowSizeClass.windowWidthSizeClass != WindowWidthSizeClass.COMPACT
+                    val adaptiveInfo = currentWindowAdaptiveInfoV2()
+                    val usePermanentDrawer = adaptiveInfo.windowSizeClass
+                        .isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND)
 
                     if (usePermanentDrawer && isTopLevelDestination) {
                         PermanentNavigationDrawer(

@@ -29,7 +29,7 @@ class PlaylistsViewModel @Inject constructor(
             _error.value = null
             playlistRepository.getPlaylists()
                 .onSuccess { _playlists.value = it }
-                .onFailure { _error.value = it.message ?: "Failed to load playlists" }
+                .onFailure { _error.value = it.message ?: "Failed to load series" }
             _isLoading.value = false
         }
     }

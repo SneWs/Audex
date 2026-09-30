@@ -15,4 +15,11 @@ class PlaylistRepository @Inject constructor(
         } catch (e: Exception) {
             Result.failure(e)
         }
+
+    suspend fun getPlaylist(id: Int): Result<PlaylistDto> =
+        try {
+            Result.success(apiService.getPlaylist(id))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 }
