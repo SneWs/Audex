@@ -183,7 +183,7 @@
                 </MudPaper>
 
                 <MudPaper Outlined="true" Class="pa-3">
-                    <MudText Typo="Typo.subtitle2" Class="mb-2">Playlists</MudText>
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Series</MudText>
                     @if (_playlistsLoading)
                     {
                         <MudProgressCircular Size="Size.Small" Indeterminate="true" />
@@ -192,14 +192,14 @@
                     {
                         <MudText Typo="Typo.body2" Class="mud-text-secondary">
                             @(_playlists.All(playlist => !playlist.CanEdit)
-                                ? "Create a playlist to add this book."
-                                : "This book is already in all of your playlists.")
+                                ? "Create a series to add this book."
+                                : "This book is already in all of your series.")
                         </MudText>
                     }
                     else
                     {
                         <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudSelect T="int" @bind-Value="_playlistToAddId" Label="Add to playlist"
+                            <MudSelect T="int" @bind-Value="_playlistToAddId" Label="Add to series"
                                        Variant="Variant.Outlined" Style="min-width:250px;"
                                        Disabled="_savingPlaylist">
                                 @foreach (var playlist in _availablePlaylists)
