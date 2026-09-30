@@ -10,6 +10,14 @@ public class AudioIndexer : IAudioIndexer
     private static readonly string[] AudioExtensions =
         { ".mp3", ".m4a", ".m4b", ".aac", ".ogg", ".flac", ".wav" };
 
+    private static readonly EnumerationOptions DirectoryEnumerationOptions = new()
+    {
+        RecurseSubdirectories = false,
+        IgnoreInaccessible = true,
+        AttributesToSkip = FileAttributes.None,
+        ReturnSpecialDirectories = false
+    };
+
     private static readonly SemaphoreSlim _indexLock = new(1, 1);
 
     private readonly AppDbContext _db;
@@ -44,25 +52,40 @@ public class AudioIndexer : IAudioIndexer
 
         await _hub.Clients.All.ScanStarted();
 
-        // Every directory that directly contains at least one audio file is a book.
-        var bookFolders = Directory.EnumerateDirectories(RootPath, "*", SearchOption.AllDirectories)
-            .Append(RootPath)
-            .Where(HasAudioFiles)
-            .ToList();
-
-        for (var i = 0; i < bookFolders.Count; i++)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            await _hub.Clients.All.ScanProgress($"Scanning {i + 1}/{bookFolders.Count}: {Path.GetFileName(bookFolders[i])}");
-            await IndexFolderAsync(bookFolders[i], ct)
+            // Every directory that directly contains at least one audio file is a book.
+            var bookFolders = DiscoverBookFolders(RootPath);
+            _logger.LogInformation("Found {Count} book folder(s) under {Path}.", bookFolders.Count, RootPath);
+
+            for (var i = 0; i < bookFolders.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var folder = bookFolders[i];
+                await _hub.Clients.All.ScanProgress($"Scanning {i + 1}/{bookFolders.Count}: {Path.GetFileName(folder)}");
+                try
+                {
+                    await IndexFolderAsync(folder, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to index folder {Folder}; continuing scan.", folder);
+                }
+            }
+
+            await PruneMissingBooksAsync(ct)
                 .ConfigureAwait(false);
         }
-
-        await PruneMissingBooksAsync(ct)
-            .ConfigureAwait(false);
-
-        var totalBooks = await _db.Books.CountAsync(ct).ConfigureAwait(false);
-        await _hub.Clients.All.ScanCompleted(totalBooks);
+        finally
+        {
+            var totalBooks = await _db.Books.CountAsync(CancellationToken.None).ConfigureAwait(false);
+            await _hub.Clients.All.ScanCompleted(totalBooks);
+        }
     }
 
     public async Task<bool> RescanBookAsync(int bookId, CancellationToken ct = default)
@@ -88,6 +111,7 @@ public class AudioIndexer : IAudioIndexer
         }
         finally
         {
+            _db.ChangeTracker.Clear();
             _indexLock.Release();
         }
     }
@@ -96,7 +120,12 @@ public class AudioIndexer : IAudioIndexer
     {
         var relFolder = RelPath(folderFullPath);
 
-        var files = GetAudioFiles(folderFullPath);
+        if (!TryListAudioFiles(folderFullPath, out var files))
+        {
+            _logger.LogWarning("Could not list audio files in {Folder}; skipping this pass.", folderFullPath);
+            return;
+        }
+
         if (files.Count == 0)
         {
             // Folder no longer holds audio -> drop the book if we had one.
@@ -140,13 +169,13 @@ public class AudioIndexer : IAudioIndexer
                 DurationSec: meta.DurationSec,
                 TrackNumber: meta.Track > 0 ? meta.Track : index));
 
-            if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author)) 
+            if (author == "Unknown" && !string.IsNullOrWhiteSpace(meta.Author))
                 author = meta.Author!;
             if (year is null && meta.Year > 0)
                 year = meta.Year;
-            if (readBy == null && !string.IsNullOrWhiteSpace(meta.ReadBy)) 
+            if (readBy == null && !string.IsNullOrWhiteSpace(meta.ReadBy))
                 readBy = meta.ReadBy;
-            if (album == null && !string.IsNullOrWhiteSpace(meta.Album)) 
+            if (album == null && !string.IsNullOrWhiteSpace(meta.Album))
                 album = meta.Album;
             if (taggedTitle == null && !string.IsNullOrWhiteSpace(meta.Title))
                 taggedTitle = meta.Title;
@@ -170,9 +199,10 @@ public class AudioIndexer : IAudioIndexer
 
         scanned = scanned.OrderBy(c => c.TrackNumber).ThenBy(c => c.FilePath).ToList();
 
-        // Prefer the Album tag as the book name; fall back to the folder name.
+        // Prefer a real Album tag as the book name; fall back to the folder name
+        // when the tag is missing or a placeholder like "Unknown Album".
         var folderName = new DirectoryInfo(folderFullPath).Name;
-        var title = string.IsNullOrWhiteSpace(album) ? folderName : album;
+        var title = IsUnusableAlbumTitle(album) ? folderName : album!;
         
         // Avoid showing the same text as both title and description.
         if (!string.IsNullOrWhiteSpace(description) &&
@@ -499,13 +529,22 @@ public class AudioIndexer : IAudioIndexer
 
     private async Task ScanTreeAsync(string rootFullPath, CancellationToken ct)
     {
-        foreach (var folder in Directory.EnumerateDirectories(rootFullPath, "*", SearchOption.AllDirectories)
-                     .Append(rootFullPath)
-                     .Where(HasAudioFiles))
+        foreach (var folder in DiscoverBookFolders(rootFullPath))
         {
             ct.ThrowIfCancellationRequested();
-            await IndexFolderAsync(folder, ct)
-                .ConfigureAwait(false);
+            try
+            {
+                await IndexFolderAsync(folder, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to index folder {Folder}; continuing scan.", folder);
+            }
         }
     }
 
@@ -517,8 +556,18 @@ public class AudioIndexer : IAudioIndexer
         var removed = false;
         foreach (var b in books)
         {
-            var full = Path.Combine(RootPath, b.FolderPath);
-            if (!Directory.Exists(full) || GetAudioFiles(full).Count == 0)
+            var full = ToFullPath(b.FolderPath);
+
+            // Network shares often return false from Directory.Exists on transient
+            // errors. Only drop a book when we can positively list the folder and
+            // it no longer contains audio (or the folder is truly gone).
+            if (!TryListAudioFiles(full, out var files))
+            {
+                _logger.LogWarning("Could not verify book folder {Folder}; leaving it indexed.", b.FolderPath);
+                continue;
+            }
+
+            if (files.Count == 0)
             {
                 _db.Books.Remove(b);
                 removed = true;
@@ -532,22 +581,104 @@ public class AudioIndexer : IAudioIndexer
         }
     }
 
-    private static bool HasAudioFiles(string folder) => GetAudioFiles(folder).Count > 0;
-
-    private static List<string> GetAudioFiles(string folder)
+    private List<string> DiscoverBookFolders(string root)
     {
-        if (!Directory.Exists(folder))
-            return new List<string>();
+        var folders = new List<string>();
+        foreach (var dir in EnumerateDirectoriesSafe(root))
+        {
+            if (HasAudioFiles(dir))
+                folders.Add(dir);
+        }
 
-        return Directory.EnumerateFiles(folder, "*", SearchOption.TopDirectoryOnly)
-            .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())
-                     && !Path.GetFileName(f).StartsWith('.'))
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        if (HasAudioFiles(root))
+            folders.Add(root);
+
+        return folders;
+    }
+
+    private IEnumerable<string> EnumerateDirectoriesSafe(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            List<string> children;
+            try
+            {
+                children = Directory.EnumerateDirectories(current, "*", DirectoryEnumerationOptions).ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                _logger.LogWarning(ex, "Skipping inaccessible directory {Dir}", current);
+                continue;
+            }
+
+            foreach (var child in children)
+            {
+                yield return child;
+                pending.Push(child);
+            }
+        }
+    }
+
+    private bool HasAudioFiles(string folder) =>
+        TryListAudioFiles(folder, out var files) && files.Count > 0;
+
+    private bool TryListAudioFiles(string folder, out List<string> files)
+    {
+        files = new List<string>();
+        try
+        {
+            files = Directory.EnumerateFiles(folder, "*", DirectoryEnumerationOptions)
+                .Where(f => AudioExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())
+                         && !Path.GetFileName(f).StartsWith('.'))
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return true;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            files = new List<string>();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            _logger.LogWarning(ex, "Failed to list audio files in {Folder}", folder);
+            files = new List<string>();
+            return false;
+        }
     }
 
     private string RelPath(string fullPath) =>
         Path.GetRelativePath(RootPath, fullPath).Replace("\\", "/");
+
+    private string ToFullPath(string relativePath)
+    {
+        var normalized = relativePath.Replace('/', Path.DirectorySeparatorChar);
+        return Path.GetFullPath(Path.Combine(RootPath, normalized));
+    }
+
+    private static bool IsUnusableAlbumTitle(string? album)
+    {
+        if (string.IsNullOrWhiteSpace(album))
+            return true;
+
+        var trimmed = album.Trim();
+        return trimmed.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+               || trimmed.Equals("Album", StringComparison.OrdinalIgnoreCase)
+               || trimmed.StartsWith("Unknown Album", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? CleanTag(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var cleaned = value.Replace("\0", string.Empty).Trim();
+        return cleaned.Length == 0 ? null : cleaned;
+    }
 
     private Metadata ReadMetadata(string fullPath)
     {
@@ -592,13 +723,17 @@ public class AudioIndexer : IAudioIndexer
 
             return new Metadata
             {
-                Title = tag.Title,
-                Author = tag.FirstPerformer ?? tag.FirstAlbumArtist ?? tag.FirstComposer,
+                Title = CleanTag(tag.Title),
+                Author = CleanTag(tag.FirstPerformer) ?? CleanTag(tag.FirstAlbumArtist) ?? CleanTag(tag.FirstComposer),
                 Year = tag.Year > 0 ? (int)tag.Year : null,
-                ReadBy = FirstNonEmpty(tag.Composers) ?? FirstNonEmpty(tag.AlbumArtists),
-                Album = tag.Album,
-                Genres = tag.Genres ?? Array.Empty<string>(),
-                Description = string.IsNullOrWhiteSpace(tag.Comment) ? tag.Album : tag.Comment,
+                ReadBy = CleanTag(FirstNonEmpty(tag.Composers)) ?? CleanTag(FirstNonEmpty(tag.AlbumArtists)),
+                Album = CleanTag(tag.Album),
+                Genres = (tag.Genres ?? Array.Empty<string>())
+                    .Select(CleanTag)
+                    .Where(g => g is not null)
+                    .Cast<string>()
+                    .ToArray(),
+                Description = CleanTag(tag.Comment) ?? CleanTag(tag.Album),
                 DurationSec = (int)(tf.Properties?.Duration.TotalSeconds ?? 0),
                 Track = (int)tag.Track,
                 HasCover = pic is not null && pic.Data.Count > 0

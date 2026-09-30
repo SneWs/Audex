@@ -4,6 +4,8 @@
 @attribute [Authorize]
 @inject HttpClient Http
 @inject ISnackbar Snackbar
+@inject LibraryHubService Hub
+@implements IDisposable
 
 <div class="d-flex align-center justify-space-between mb-4">
     <div>
@@ -30,13 +32,19 @@
 <BookGrid Books="books"
           EmptyTitle="No audiobooks yet"
           EmptyIcon="@Icons.Material.Filled.LibraryBooks"
-          EmptyText="Add .mp3 or .m4a files to the configured library folder, then hit Re-scan library." />
+          EmptyText="Add audio files to the configured library folder, then hit Re-scan library." />
 
 @code {
     BookDto[]? books;
     bool _scanning;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        Hub.ScanCompleted += OnScanCompleted;
+        Hub.BookAdded += OnLibraryChanged;
+        Hub.BookRemoved += OnLibraryChanged;
+        await LoadAsync();
+    }
 
     async Task LoadAsync()
     {
@@ -57,23 +65,45 @@
         try
         {
             var res = await Http.PostAsync("/api/books/rescan", null);
-            if (res.IsSuccessStatusCode)
-            {
-                await LoadAsync();
-                Snackbar.Add($"Re-scan complete — {books?.Length ?? 0} book(s) in your library.", Severity.Success);
-            }
-            else
+            if (!res.IsSuccessStatusCode)
             {
                 Snackbar.Add("Re-scan failed. Please try again.", Severity.Error);
+                _scanning = false;
+                return;
+            }
+
+            if (!Hub.IsConnected)
+            {
+                Snackbar.Add("Re-scan started in the background. Refresh shortly to see new books.", Severity.Info);
+                _scanning = false;
             }
         }
         catch
         {
             Snackbar.Add("Re-scan failed. Please try again.", Severity.Error);
-        }
-        finally
-        {
             _scanning = false;
         }
+    }
+
+    void OnScanCompleted(int count) => InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        _scanning = false;
+        StateHasChanged();
+    });
+
+    void OnLibraryChanged(int id, string title)
+    {
+        if (_scanning)
+            return;
+
+        InvokeAsync(LoadAsync);
+    }
+
+    public void Dispose()
+    {
+        Hub.ScanCompleted -= OnScanCompleted;
+        Hub.BookAdded -= OnLibraryChanged;
+        Hub.BookRemoved -= OnLibraryChanged;
     }
 }

@@ -24,11 +24,8 @@ public class AudioIndexBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!Directory.Exists(_rootPath))
-        {
-            _logger.LogWarning("Audio library path {Path} does not exist. Indexer idle.", _rootPath);
+        if (!await WaitForLibraryPathAsync(stoppingToken))
             return;
-        }
 
         using (var scope = _scopeFactory.CreateScope())
         {
@@ -38,7 +35,18 @@ public class AudioIndexBackgroundService : BackgroundService
             {
                 _logger.LogInformation("No books in database — running initial scan.");
                 var indexer = scope.ServiceProvider.GetRequiredService<IAudioIndexer>();
-                await indexer.InitialScanAsync(stoppingToken);
+                try
+                {
+                    await indexer.InitialScanAsync(stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Initial library scan failed. Watcher will still start.");
+                }
             }
             else
             {
@@ -46,15 +54,29 @@ public class AudioIndexBackgroundService : BackgroundService
             }
         }
 
-        var watcher = new FileSystemWatcher(_rootPath) { IncludeSubdirectories = true };
-        watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.DirectoryName;
-        watcher.Created += async (_, e) => await ReindexFolderOf(e.FullPath, stoppingToken);
-        watcher.Changed += async (_, e) => await ReindexFolderOf(e.FullPath, stoppingToken);
-        watcher.Deleted += async (_, e) => await HandleDelete(e.FullPath, stoppingToken);
-        watcher.Renamed += async (_, e) => await HandleRename(e.OldFullPath, e.FullPath, stoppingToken);
-        watcher.EnableRaisingEvents = true;
+        FileSystemWatcher? watcher = null;
+        try
+        {
+            watcher = new FileSystemWatcher(_rootPath)
+            {
+                IncludeSubdirectories = true,
+                InternalBufferSize = 64 * 1024
+            };
+            watcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.DirectoryName;
+            watcher.Created += async (_, e) => await ReindexFolderOf(e.FullPath, stoppingToken);
+            watcher.Changed += async (_, e) => await ReindexFolderOf(e.FullPath, stoppingToken);
+            watcher.Deleted += async (_, e) => await HandleDelete(e.FullPath, stoppingToken);
+            watcher.Renamed += async (_, e) => await HandleRename(e.OldFullPath, e.FullPath, stoppingToken);
+            watcher.Error += (_, e) =>
+                _logger.LogWarning(e.GetException(), "FileSystemWatcher error on {Path}. Use Re-scan library if books are missing.", _rootPath);
+            watcher.EnableRaisingEvents = true;
+            _logger.LogInformation("Audio indexer started.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "FileSystemWatcher could not start for {Path}. Manual re-scan is required to pick up new books.", _rootPath);
+        }
 
-        _logger.LogInformation("Audio indexer started.");
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken).ConfigureAwait(false);
@@ -64,8 +86,28 @@ public class AudioIndexBackgroundService : BackgroundService
         }
         finally
         {
-            watcher.Dispose();
+            watcher?.Dispose();
         }
+    }
+
+    private async Task<bool> WaitForLibraryPathAsync(CancellationToken ct)
+    {
+        if (Directory.Exists(_rootPath))
+            return true;
+
+        _logger.LogWarning("Audio library path {Path} does not exist yet; retrying for a mapped/network drive.", _rootPath);
+        for (var i = 0; i < 10; i++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+            if (Directory.Exists(_rootPath))
+            {
+                _logger.LogInformation("Audio library path {Path} is now available.", _rootPath);
+                return true;
+            }
+        }
+
+        _logger.LogWarning("Audio library path {Path} does not exist. Indexer idle.", _rootPath);
+        return false;
     }
 
     private async Task ReindexFolderOf(string changedPath, CancellationToken ct)
