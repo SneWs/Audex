@@ -72,6 +72,7 @@ builder.Services.AddHttpClient<IAudibleBookScraper, AudibleBookScraper>(client =
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 builder.Services.AddSignalR();
+builder.Services.AddScoped<SeriesPlaylistSynchronizer>();
 builder.Services.AddScoped<IAudioIndexer, AudioIndexer>();
 builder.Services.AddHostedService<AudioIndexBackgroundService>();
 

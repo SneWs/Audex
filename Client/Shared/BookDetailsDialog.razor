@@ -191,7 +191,9 @@
                     else if (_availablePlaylists.Count == 0)
                     {
                         <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                            @(_playlists.Count == 0 ? "Create a playlist to add this book." : "This book is already in all of your playlists.")
+                            @(_playlists.All(playlist => !playlist.CanEdit)
+                                ? "Create a playlist to add this book."
+                                : "This book is already in all of your playlists.")
                         </MudText>
                     }
                     else
@@ -276,7 +278,7 @@
 
     List<PlaylistDto> _availablePlaylists => _book is null
         ? new()
-        : _playlists.Where(playlist => playlist.Books.All(book => book.Id != _book.Id)).ToList();
+        : _playlists.Where(playlist => playlist.CanEdit && playlist.Books.All(book => book.Id != _book.Id)).ToList();
 
     protected override async Task OnInitializedAsync()
     {

@@ -23,6 +23,7 @@ public class AudioIndexer : IAudioIndexer
     private readonly AppDbContext _db;
     private readonly AudiobookSettings _settings;
     private readonly BookMetadataLookup _metadataLookup;
+    private readonly SeriesPlaylistSynchronizer _seriesPlaylists;
     private readonly IHubContext<LibraryHub, ILibraryHubClient> _hub;
     private readonly ILogger<AudioIndexer> _logger;
 
@@ -32,12 +33,14 @@ public class AudioIndexer : IAudioIndexer
         AppDbContext db,
         Microsoft.Extensions.Options.IOptions<AudiobookSettings> options,
         BookMetadataLookup metadataLookup,
+        SeriesPlaylistSynchronizer seriesPlaylists,
         IHubContext<LibraryHub, ILibraryHubClient> hub,
         ILogger<AudioIndexer> logger)
     {
         _db = db;
         _settings = options.Value;
         _metadataLookup = metadataLookup;
+        _seriesPlaylists = seriesPlaylists;
         _hub = hub;
         _logger = logger;
     }
@@ -80,6 +83,8 @@ public class AudioIndexer : IAudioIndexer
 
             await PruneMissingBooksAsync(ct)
                 .ConfigureAwait(false);
+
+            await SyncSeriesPlaylistsAsync(ct).ConfigureAwait(false);
         }
         finally
         {
@@ -105,25 +110,29 @@ public class AudioIndexer : IAudioIndexer
     public async Task IndexFolderAsync(string folderFullPath, CancellationToken ct)
     {
         await _indexLock.WaitAsync(ct).ConfigureAwait(false);
+        var created = false;
         try
         {
-            await IndexFolderCoreAsync(folderFullPath, ct).ConfigureAwait(false);
+            created = await IndexFolderCoreAsync(folderFullPath, ct).ConfigureAwait(false);
         }
         finally
         {
             _db.ChangeTracker.Clear();
             _indexLock.Release();
         }
+
+        if (created)
+            await SyncSeriesPlaylistsAsync(ct).ConfigureAwait(false);
     }
 
-    private async Task IndexFolderCoreAsync(string folderFullPath, CancellationToken ct)
+    private async Task<bool> IndexFolderCoreAsync(string folderFullPath, CancellationToken ct)
     {
         var relFolder = RelPath(folderFullPath);
 
         if (!TryListAudioFiles(folderFullPath, out var files))
         {
             _logger.LogWarning("Could not list audio files in {Folder}; skipping this pass.", folderFullPath);
-            return;
+            return false;
         }
 
         if (files.Count == 0)
@@ -143,7 +152,7 @@ public class AudioIndexer : IAudioIndexer
                 await _hub.Clients.All.BookRemoved(removedId, removedTitle);
                 _logger.LogInformation("Removed book (no audio left): {Folder}", relFolder);
             }
-            return;
+            return false;
         }
 
         var scanned = new List<ScannedChapter>();
@@ -382,6 +391,8 @@ public class AudioIndexer : IAudioIndexer
         _logger.LogInformation("Indexed '{Title}' ({Count} chapter(s), {Dur}s, genres: {Genres})",
             displayTitle, scanned.Count, totalDuration,
             genreNames.Count > 0 ? string.Join(", ", genreNames) : "-");
+
+        return isNew;
     }
 
     // Maps genre names to shared Genre rows, creating any that don't yet exist.
@@ -482,6 +493,8 @@ public class AudioIndexer : IAudioIndexer
 
         _logger.LogInformation("Renamed folder '{Old}' -> '{New}' ({Count} book(s) migrated).",
             oldRel, newRel, affected.Count);
+
+        await SyncSeriesPlaylistsAsync(ct).ConfigureAwait(false);
     }
 
     public async Task HandleDeleteAsync(string fullPath, CancellationToken ct)
@@ -515,6 +528,7 @@ public class AudioIndexer : IAudioIndexer
                 .ConfigureAwait(false);
 
             _logger.LogInformation("Removed {Count} book(s) under deleted path '{Path}'.", gone.Count, rel);
+            await SyncSeriesPlaylistsAsync(ct).ConfigureAwait(false);
             return;
         }
 
@@ -524,6 +538,22 @@ public class AudioIndexer : IAudioIndexer
         {
             await IndexFolderAsync(parent, ct)
                 .ConfigureAwait(false);
+        }
+    }
+
+    private async Task SyncSeriesPlaylistsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _seriesPlaylists.SyncAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to synchronize series playlists.");
         }
     }
 
