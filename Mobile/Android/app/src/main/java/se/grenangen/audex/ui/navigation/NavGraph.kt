@@ -15,6 +15,7 @@ import se.grenangen.audex.ui.screen.library.LibraryScreen
 import se.grenangen.audex.ui.screen.library.LibraryType
 import se.grenangen.audex.ui.screen.login.LoginScreen
 import se.grenangen.audex.ui.screen.player.PlayerScreen
+import se.grenangen.audex.ui.screen.playlists.PlaylistsScreen
 import se.grenangen.audex.ui.screen.search.SearchScreen
 import se.grenangen.audex.ui.screen.settings.SettingsScreen
 
@@ -109,6 +110,9 @@ fun AudexNavGraph(
                 },
                 onMenuClick = onMenuClick
             )
+        }
+        composable(Screen.Playlists.route) {
+            PlaylistsScreen(onMenuClick = onMenuClick)
         }
         composable(
             route = Screen.BookDetail.route,

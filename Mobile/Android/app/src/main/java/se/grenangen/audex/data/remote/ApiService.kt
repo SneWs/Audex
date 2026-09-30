@@ -27,6 +27,9 @@ class ApiService @Inject constructor(
     suspend fun getBook(id: Int): BookDetailDto =
         client.get("books/$id").body()
 
+    suspend fun getPlaylists(): List<PlaylistDto> =
+        client.get("playlists").body()
+
     suspend fun updateProgress(userId: String, progress: ProgressDto) =
         client.post("users/$userId/progress") {
             contentType(ContentType.Application.Json)

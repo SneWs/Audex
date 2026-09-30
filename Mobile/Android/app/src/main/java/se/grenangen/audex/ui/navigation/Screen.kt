@@ -2,6 +2,7 @@ package se.grenangen.audex.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -14,6 +15,7 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     object Recents : Screen("recents", "Recents", Icons.Default.NewReleases)
     object Continue : Screen("continue", "Continue", Icons.Default.PlayCircleOutline)
     object Favorites : Screen("favorites", "Favorites", Icons.Default.Favorite)
+    object Playlists : Screen("playlists", "Playlists", Icons.AutoMirrored.Filled.QueueMusic)
     object BookDetail : Screen("book_detail/{bookId}") {
         fun createRoute(bookId: Int) = "book_detail/$bookId"
     }
@@ -22,6 +24,6 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 
     object NavItems {
-        val topLevelDestinations = listOf(Library, Continue, Recents, Favorites, Search, Settings)
+        val topLevelDestinations = listOf(Library, Continue, Recents, Favorites, Playlists, Search, Settings)
     }
 }
