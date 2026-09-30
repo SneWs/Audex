@@ -105,6 +105,7 @@ app.MapGenresEndpoints();
 app.MapChapterEndpoints();
 app.MapProgressEndpoints();
 app.MapFavoritesEndpoints();
+app.MapPlaylistsEndpoints();
 app.MapAccountEndpoints();
 
 app.Run();

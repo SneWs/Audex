@@ -11,6 +11,8 @@ public class AppDbContext : DbContext
     public DbSet<Genre> Genres { get; set; } = default!;
     public DbSet<Progress> Progress { get; set; } = null!;
     public DbSet<Favorite> Favorites { get; set; } = default!;
+    public DbSet<Playlist> Playlists { get; set; } = default!;
+    public DbSet<PlaylistBook> PlaylistBooks { get; set; } = default!;
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) {}
     protected override void OnModelCreating(ModelBuilder builder)
@@ -29,6 +31,19 @@ public class AppDbContext : DbContext
             .HasOne(f => f.Book)
             .WithMany()
             .HasForeignKey(f => f.BookId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<Playlist>().HasIndex(p => new { p.UserId, p.Name }).IsUnique();
+        builder.Entity<PlaylistBook>().HasKey(pb => new { pb.PlaylistId, pb.BookId });
+        builder.Entity<PlaylistBook>().HasIndex(pb => new { pb.PlaylistId, pb.Position }).IsUnique();
+        builder.Entity<PlaylistBook>()
+            .HasOne(pb => pb.Playlist)
+            .WithMany(p => p.Books)
+            .HasForeignKey(pb => pb.PlaylistId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.Entity<PlaylistBook>()
+            .HasOne(pb => pb.Book)
+            .WithMany()
+            .HasForeignKey(pb => pb.BookId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -1,0 +1,262 @@
+@page "/playlists"
+@using System.Net.Http.Json
+@using Grenis.AudioBooks.Core
+@attribute [Authorize]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+
+<div class="d-flex align-center mb-4">
+    <div>
+        <MudText Typo="Typo.h4">Playlists</MudText>
+        <MudText Typo="Typo.body1" Class="mud-text-secondary">Organize books into the order you want to hear them.</MudText>
+    </div>
+    <MudSpacer />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="CreatePlaylist">New playlist</MudButton>
+</div>
+
+<MudDivider Class="mb-6" />
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_editing is not null)
+{
+    <MudPaper Elevation="2" Class="pa-5 mb-6">
+        <MudText Typo="Typo.h6" Class="mb-4">@(_editing.Id == 0 ? "Create playlist" : "Edit playlist")</MudText>
+        <MudTextField T="string" @bind-Value="_editingName" Label="Playlist name" Variant="Variant.Outlined"
+                      Required="true" MaxLength="200" Class="mb-4" Style="max-width:500px;" />
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+            <MudSelect T="int" @bind-Value="_bookToAdd" Label="Add a book" Variant="Variant.Outlined"
+                       Style="min-width:300px;" Disabled="@(_availableBooks.Count == 0)">
+                @foreach (var book in _availableBooks)
+                {
+                    <MudSelectItem T="int" Value="@book.Id">@book.Title — @book.Author</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Outlined" OnClick="AddBook" Disabled="@(_bookToAdd == 0)">
+                Add
+            </MudButton>
+        </MudStack>
+
+        @if (_editing.Books.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">Add books to set their listening order.</MudText>
+        }
+        else
+        {
+            <MudList T="BookDto" Dense="true" Class="mb-4">
+                @for (var index = 0; index < _editing.Books.Count; index++)
+                {
+                    var bookIndex = index;
+                    var book = _editing.Books[bookIndex];
+                    <MudListItem T="BookDto" Value="@book">
+                        <MudText Typo="Typo.body1">@($"{bookIndex + 1}. {book.Title}")</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">@book.Author</MudText>
+                        <MudSpacer />
+                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
+                                       Disabled="@(bookIndex == 0)" OnClick="@(() => MoveBook(bookIndex, -1))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
+                                       Disabled="@(bookIndex == _editing.Books.Count - 1)" OnClick="@(() => MoveBook(bookIndex, 1))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                       OnClick="@(() => RemoveBook(bookIndex))" />
+                    </MudListItem>
+                }
+            </MudList>
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="_saving">
+            @(_saving ? "Saving..." : "Save playlist")
+        </MudButton>
+        <MudButton Variant="Variant.Text" OnClick="CancelEdit" Disabled="_saving">Cancel</MudButton>
+    </MudPaper>
+}
+
+@if (!_loading && _playlists.Count == 0 && _editing is null)
+{
+    <MudText Typo="Typo.body1" Class="mud-text-secondary">No playlists yet.</MudText>
+}
+else
+{
+    <MudGrid>
+        @foreach (var playlist in _playlists)
+        {
+            <MudItem xs="12" sm="6" md="4">
+                <MudPaper Elevation="1" Class="pa-4" Style="height:100%;">
+                    <div class="d-flex align-center">
+                        <MudIcon Icon="@Icons.Material.Filled.QueueMusic" Color="Color.Primary" Size="Size.Large" />
+                        <div class="ml-3">
+                            <MudText Typo="Typo.h6">@playlist.Name</MudText>
+                            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                                @($"{playlist.Books.Count} {(playlist.Books.Count == 1 ? "book" : "books")}")
+                            </MudText>
+                        </div>
+                    </div>
+                    @if (playlist.Books.Count > 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-3 text-truncate">@playlist.Books[0].Title</MudText>
+                    }
+                    <div class="mt-4">
+                        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Edit"
+                                   OnClick="@(() => EditPlaylist(playlist))">Edit</MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Error" StartIcon="@Icons.Material.Filled.Delete"
+                                   OnClick="@(() => DeleteAsync(playlist))">Delete</MudButton>
+                    </div>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    readonly List<PlaylistDto> _playlists = new();
+    List<BookDto> _libraryBooks = new();
+    PlaylistDto? _editing;
+    string _editingName = string.Empty;
+    int _bookToAdd;
+    bool _loading = true;
+    bool _saving;
+
+    List<BookDto> _availableBooks => _editing is null
+        ? new()
+        : _libraryBooks.Where(book => _editing.Books.All(selected => selected.Id != book.Id)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var playlistsTask = Http.GetFromJsonAsync<PlaylistDto[]>("/api/playlists");
+            var booksTask = Http.GetFromJsonAsync<BookDto[]>("/api/books");
+            await Task.WhenAll(playlistsTask, booksTask);
+
+            _playlists.AddRange(playlistsTask.Result ?? Array.Empty<PlaylistDto>());
+            _libraryBooks = (booksTask.Result ?? Array.Empty<BookDto>()).OrderBy(book => book.Title).ToList();
+        }
+        catch
+        {
+            Snackbar.Add("Unable to load playlists.", Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    void CreatePlaylist()
+    {
+        _editing = new PlaylistDto();
+        _editingName = string.Empty;
+        _bookToAdd = 0;
+    }
+
+    void EditPlaylist(PlaylistDto playlist)
+    {
+        _editing = new PlaylistDto
+        {
+            Id = playlist.Id,
+            Name = playlist.Name,
+            CreatedAt = playlist.CreatedAt,
+            UpdatedAt = playlist.UpdatedAt,
+            Books = playlist.Books.ToList()
+        };
+        _editingName = playlist.Name;
+        _bookToAdd = 0;
+    }
+
+    void AddBook()
+    {
+        if (_editing is null || _bookToAdd == 0)
+            return;
+
+        var book = _libraryBooks.SingleOrDefault(book => book.Id == _bookToAdd);
+        if (book is not null)
+            _editing.Books.Add(book);
+        _bookToAdd = 0;
+    }
+
+    void MoveBook(int index, int offset)
+    {
+        if (_editing is null)
+            return;
+
+        var target = index + offset;
+        if (target < 0 || target >= _editing.Books.Count)
+            return;
+
+        (_editing.Books[index], _editing.Books[target]) = (_editing.Books[target], _editing.Books[index]);
+    }
+
+    void RemoveBook(int index) => _editing?.Books.RemoveAt(index);
+
+    async Task SaveAsync()
+    {
+        if (_editing is null)
+            return;
+        if (string.IsNullOrWhiteSpace(_editingName))
+        {
+            Snackbar.Add("A playlist name is required.", Severity.Error);
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var request = new PlaylistRequest
+            {
+                Name = _editingName.Trim(),
+                BookIds = _editing.Books.Select(book => book.Id).ToList()
+            };
+            var response = _editing.Id == 0
+                ? await Http.PostAsJsonAsync("/api/playlists", request)
+                : await Http.PutAsJsonAsync($"/api/playlists/{_editing.Id}", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Unable to save playlist.", Severity.Error);
+                return;
+            }
+
+            await ReloadPlaylistsAsync();
+            _editing = null;
+            Snackbar.Add("Playlist saved.", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("Unable to save playlist.", Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    async Task DeleteAsync(PlaylistDto playlist)
+    {
+        try
+        {
+            var response = await Http.DeleteAsync($"/api/playlists/{playlist.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                Snackbar.Add("Unable to delete playlist.", Severity.Error);
+                return;
+            }
+
+            _playlists.Remove(playlist);
+            Snackbar.Add("Playlist deleted.", Severity.Success);
+        }
+        catch
+        {
+            Snackbar.Add("Unable to delete playlist.", Severity.Error);
+        }
+    }
+
+    async Task ReloadPlaylistsAsync()
+    {
+        var playlists = await Http.GetFromJsonAsync<PlaylistDto[]>("/api/playlists") ?? Array.Empty<PlaylistDto>();
+        _playlists.Clear();
+        _playlists.AddRange(playlists);
+    }
+
+    void CancelEdit() => _editing = null;
+}
