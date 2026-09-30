@@ -80,6 +80,19 @@ object NetworkModule {
             }
         }.also { client ->
             client.plugin(HttpSend).intercept { request ->
+                val serverUri = settingsManager.getServerUri()
+                if (serverUri != null && (request.url.host.isEmpty() || request.url.host == "localhost")) {
+                    val baseUrl = Url(serverUri)
+                    val requestPath = request.url.encodedPath.removePrefix("/")
+
+                    request.url.takeFrom(baseUrl)
+
+                    val basePath = baseUrl.encodedPath.removeSuffix("/")
+                    request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
+                }
+
+                // Relative request URLs are resolved above; classify the final path so a 401 from
+                // login or refresh cannot recursively enter the refresh flow.
                 val path = request.url.encodedPath
                 val isAuthRequest = path.endsWith("/login") || path.endsWith("/register")
                 val isRefreshRequest = path.endsWith("/refresh")
@@ -88,17 +101,6 @@ object NetworkModule {
                     tokenManager.getToken()?.let { token ->
                         request.headers[HttpHeaders.Authorization] = "Bearer $token"
                     }
-                }
-
-                val serverUri = settingsManager.getServerUri()
-                if (serverUri != null && (request.url.host.isEmpty() || request.url.host == "localhost")) {
-                    val baseUrl = Url(serverUri)
-                    val requestPath = request.url.encodedPath.removePrefix("/")
-                    
-                    request.url.takeFrom(baseUrl)
-                    
-                    val basePath = baseUrl.encodedPath.removeSuffix("/")
-                    request.url.encodedPath = if (basePath.isEmpty()) "/$requestPath" else "$basePath/$requestPath"
                 }
 
                 var response = execute(request)
