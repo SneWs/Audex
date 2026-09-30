@@ -105,7 +105,7 @@ fun LibraryScreen(
                         viewModel.toggleFavorite(bookId)
                     },
                     onCompleteClick = { bookId ->
-                        viewModel.completeBook(bookId)
+                        viewModel.completeBook(bookId, type)
                     },
                     contentPadding = padding,
                     state = gridState
