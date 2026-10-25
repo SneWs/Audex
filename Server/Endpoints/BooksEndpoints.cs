@@ -53,6 +53,13 @@ public static class BooksEndpoints
                     resumePos = p.PositionSec;
                     if (chaptersByBook.TryGetValue(b.Id, out var chs))
                         (progressSec, completed) = ComputeProgress(chs, p);
+                    // An explicit "mark complete" is authoritative so a later auto-synced progress
+                    // write can't flip a finished book back to in-progress.
+                    if (p.IsCompleted)
+                    {
+                        completed = true;
+                        progressSec = b.DurationSec > 0 ? b.DurationSec : progressSec;
+                    }
                 }
 
                 return new BookDto
@@ -113,6 +120,12 @@ public static class BooksEndpoints
             var completed = false;
             if (p is not null)
                 (progressSec, completed) = ComputeProgress(orderedChapters, p);
+            // An explicit "mark complete" is authoritative over position-based detection.
+            if (p?.IsCompleted == true)
+            {
+                completed = true;
+                progressSec = b.DurationSec > 0 ? b.DurationSec : progressSec;
+            }
 
             var isFavorite = await db.Favorites.AsNoTracking()
                 .AnyAsync(f => f.UserId == userId && f.BookId == id);
@@ -294,6 +307,7 @@ public static class BooksEndpoints
                     BookId = id,
                     ChapterId = lastChapter.Id,
                     PositionSec = lastChapter.DurationSec,
+                    IsCompleted = true,
                     UpdatedAt = DateTime.UtcNow
                 };
                 db.Progress.Add(progress);
@@ -302,6 +316,7 @@ public static class BooksEndpoints
             {
                 progress.ChapterId = lastChapter.Id;
                 progress.PositionSec = lastChapter.DurationSec;
+                progress.IsCompleted = true;
                 progress.UpdatedAt = DateTime.UtcNow;
             }
             await db.SaveChangesAsync();

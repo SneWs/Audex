@@ -261,6 +261,9 @@ namespace Server.Migrations
                     b.Property<int>("ChapterId")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("IsCompleted")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("PositionSec")
                         .HasColumnType("integer");
 

@@ -5,5 +5,6 @@ public class Progress
     public int BookId { get; set; }
     public int ChapterId { get; set; }
     public int PositionSec { get; set; }
+    public bool IsCompleted { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
