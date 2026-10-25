@@ -1,112 +1,113 @@
 import Foundation
+import Observation
 
 enum DownloadState: Equatable {
     case idle
-    case downloading(completed: Int, total: Int)
+    case downloading(downloaded: Int, total: Int)
     case completed
-    case error(String)
+    case failed(String)
 }
 
+@MainActor
 @Observable
 final class DownloadManager {
-    private(set) var states: [Int: DownloadState] = [:]
     private let session: AppSession
+    var states: [Int: DownloadState] = [:]
 
     init(session: AppSession) {
         self.session = session
     }
 
-    func state(for book: BookDetail) -> DownloadState {
-        if let existing = states[book.id] { return existing }
-        return isDownloaded(book) ? .completed : .idle
-    }
-
-    func isDownloaded(_ book: BookDetail) -> Bool {
-        let chapters = book.sortedChapters
-        guard !chapters.isEmpty else { return false }
-        return chapters.allSatisfy { localFile(for: book, chapter: $0) != nil }
-    }
-
-    func download(_ book: BookDetail) async {
-        if case .downloading = states[book.id] { return }
-
-        let chapters = book.sortedChapters
-        let total = chapters.count
-        guard total > 0 else {
-            states[book.id] = .error("No downloadable chapters")
-            return
-        }
-
-        states[book.id] = .downloading(completed: 0, total: total)
-        let directory = bookDirectory(for: book)
-
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            var completed = 0
-            for chapter in chapters {
-                try await Self.downloadChapter(book: book, chapter: chapter, directory: directory, api: session.api)
-                completed += 1
-                states[book.id] = .downloading(completed: completed, total: total)
-            }
-            states[book.id] = .completed
-        } catch {
-            states[book.id] = .error(error.localizedDescription)
-        }
-    }
-
-    func localFile(for book: BookDetail, chapter: Chapter) -> URL? {
-        let file = fileURL(book: book, chapter: chapter, directory: bookDirectory(for: book))
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue else { return nil }
-        if let size = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber, size.intValue > 0 {
-            return file
-        }
-        return nil
-    }
-
-    private func bookDirectory(for book: BookDetail) -> URL {
-        offlineRoot().appendingPathComponent(FileName.sanitize(book.title.isEmpty ? "book-\(book.id)" : book.title), isDirectory: true)
-    }
-
-    private func offlineRoot() -> URL {
+    private var rootDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent("offline-books", isDirectory: true)
     }
 
-    private func fileURL(book: BookDetail, chapter: Chapter, directory: URL) -> URL {
-        let ext = Self.fileExtension(from: chapter.downloadUrl)
-        let name = "\(String(format: "%03d", chapter.trackNumber))-\(FileName.sanitize(chapter.title))\(ext)"
-        return directory.appendingPathComponent(name)
+    func bookDirectory(for bookTitle: String, bookID: Int) -> URL {
+        let folder = FileName.sanitize(bookTitle.isEmpty ? "book-\(bookID)" : bookTitle)
+        return rootDirectory.appendingPathComponent(folder, isDirectory: true)
     }
 
-    private static func fileExtension(from downloadURL: String) -> String {
-        let path = downloadURL.split(separator: "?").first.map(String.init) ?? downloadURL
-        let ext = URL(string: path)?.pathExtension ?? (path as NSString).pathExtension
-        if ext.isEmpty { return ".mp3" }
-        return ".\(ext.lowercased())"
-    }
-
-    private static func downloadChapter(book: BookDetail, chapter: Chapter, directory: URL, api: APIClient) async throws {
+    func localFileURL(for book: BookDetail, chapter: Chapter) -> URL {
         let ext = fileExtension(from: chapter.downloadUrl)
-        let name = "\(String(format: "%03d", chapter.trackNumber))-\(FileName.sanitize(chapter.title))\(ext)"
-        let target = directory.appendingPathComponent(name)
-        if let size = try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? NSNumber, size.intValue > 0 {
-            return
-        }
+        let prefix = String(format: "%03d", chapter.trackNumber)
+        let baseName = "\(prefix)-\(FileName.sanitize(chapter.title))\(ext)"
+        return bookDirectory(for: book.title, bookID: book.id).appendingPathComponent(baseName)
+    }
 
-        guard let remote = api.downloadURL(chapterID: chapter.id) else {
-            throw APIError.message("Missing download URL")
+    private func fileExtension(from urlString: String) -> String {
+        let clean = urlString.components(separatedBy: "?").first ?? urlString
+        let ext = URL(fileURLWithPath: clean).pathExtension.lowercased()
+        return ext.isEmpty ? ".mp3" : ".\(ext)"
+    }
+
+    func existingOfflineFile(for book: BookDetail, chapter: Chapter) -> URL? {
+        let fileURL = localFileURL(for: book, chapter: chapter)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path),
+              let attrs = try? fm.attributesOfItem(atPath: fileURL.path),
+              let size = attrs[.size] as? NSNumber,
+              size.int64Value > 0 else {
+            return nil
         }
-        let request = api.authenticatedRequest(url: remote)
-        let (temp, response) = try await URLSession.shared.download(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw APIError.status(http.statusCode, nil)
+        return fileURL
+    }
+
+    func isBookDownloaded(_ book: BookDetail) -> Bool {
+        let chapters = book.sortedChapters
+        guard !chapters.isEmpty else { return false }
+        return chapters.allSatisfy { existingOfflineFile(for: book, chapter: $0) != nil }
+    }
+
+    func state(for book: BookDetail) -> DownloadState {
+        if let state = states[book.id] {
+            return state
         }
-        if FileManager.default.fileExists(atPath: target.path) {
-            try FileManager.default.removeItem(at: target)
+        return isBookDownloaded(book) ? .completed : .idle
+    }
+
+    func download(book: BookDetail) async {
+        let chapters = book.sortedChapters
+        guard !chapters.isEmpty else { return }
+        if case .downloading = states[book.id] { return }
+
+        let total = chapters.count
+        states[book.id] = .downloading(downloaded: 0, total: total)
+
+        do {
+            var completed = 0
+            let api = session.api
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for chapter in chapters {
+                    let target = localFileURL(for: book, chapter: chapter)
+                    let alreadyExists = existingOfflineFile(for: book, chapter: chapter) != nil
+                    let downloadURL = api.chapterDownloadURL(for: chapter)
+
+                    group.addTask { @MainActor in
+                        if !alreadyExists {
+                            guard let downloadURL else {
+                                throw APIError.invalidServerURL
+                            }
+                            try await api.downloadFile(from: downloadURL, to: target)
+                        }
+                    }
+                }
+
+                for try await _ in group {
+                    completed += 1
+                    states[book.id] = .downloading(downloaded: completed, total: total)
+                }
+            }
+            states[book.id] = .completed
+        } catch {
+            states[book.id] = .failed(error.localizedDescription)
         }
-        try FileManager.default.moveItem(at: temp, to: target)
+    }
+
+    func removeDownloads(for book: BookDetail) {
+        let dir = bookDirectory(for: book.title, bookID: book.id)
+        try? FileManager.default.removeItem(at: dir)
+        states[book.id] = .idle
     }
 }

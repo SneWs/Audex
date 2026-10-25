@@ -13,8 +13,7 @@ struct RootView: View {
                 MainTabView()
             }
         }
-        .tint(AudexColor.primary)
-        .preferredColorScheme(session.prefersDarkMode ? .dark : .light)
+        .preferredColorScheme(session.isDarkMode ? .dark : .light)
     }
 }
 
@@ -23,6 +22,7 @@ enum AppTab: Hashable {
     case continueListening
     case recents
     case favorites
+    case series
     case search
     case settings
 }
@@ -31,66 +31,61 @@ struct MainTabView: View {
     @Environment(AppSession.self) private var session
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackController.self) private var playback
-    @State private var tab: AppTab = .library
 
-    private var showsMiniPlayer: Bool {
-        playback.currentBook != nil && !playback.isNowPlayingPresented
-    }
+    @State private var tab: AppTab = .library
+    @State private var didSelectInitialTab = false
 
     var body: some View {
-        Group {
-            #if os(macOS)
-            VStack(spacing: 0) {
-                tabHost
-                if showsMiniPlayer {
-                    MiniPlayerBar()
-                }
-            }
-            #else
-            tabHost
-                .tabViewBottomAccessory(isEnabled: showsMiniPlayer) {
-                    MiniPlayerBar()
-                }
-            #endif
-        }
-        .audexNowPlayingCover(isPresented: Binding(
-            get: { playback.isNowPlayingPresented },
-            set: { playback.isNowPlayingPresented = $0 }
-        )) {
-            NowPlayingView()
-                .preferredColorScheme(session.prefersDarkMode ? .dark : .light)
-                .tint(AudexColor.primary)
-                #if os(macOS)
-                .frame(minWidth: 480, minHeight: 560)
-                #endif
-        }
-        .task {
-            await library.refresh()
-            await session.loadAccount()
-        }
-    }
+        @Bindable var playback = playback
 
-    private var tabHost: some View {
         TabView(selection: $tab) {
-            Tab("Library", systemImage: "books.vertical", value: AppTab.library) {
+            Tab("Library", systemImage: "books.vertical.fill", value: .library) {
                 LibraryView(filter: .all)
             }
-            Tab("Continue", systemImage: "play.circle", value: AppTab.continueListening) {
+
+            Tab("Continue", systemImage: "play.circle.fill", value: .continueListening) {
                 LibraryView(filter: .continueListening)
             }
-            Tab("Recents", systemImage: "clock", value: AppTab.recents) {
+
+            Tab("Recents", systemImage: "sparkles", value: .recents) {
                 LibraryView(filter: .recents)
             }
-            Tab("Favorites", systemImage: "heart", value: AppTab.favorites) {
+
+            Tab("Favorites", systemImage: "heart.fill", value: .favorites) {
                 LibraryView(filter: .favorites)
             }
-            Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
+
+            Tab("Series", systemImage: "music.note.list", value: .series) {
+                SeriesListView()
+            }
+
+            Tab("Search", systemImage: "magnifyingglass", value: .search, role: .search) {
                 SearchView()
             }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
+
+            Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                 SettingsView()
             }
         }
+        #if os(iOS)
+        .tabBarMinimizeBehavior(.onScrollDown)
+        #endif
         .tabViewStyle(.sidebarAdaptable)
+        .tabViewBottomAccessory(isEnabled: playback.currentBook != nil) {
+            MiniPlayerBar()
+        }
+        .audexNowPlayingCover(isPresented: $playback.isPresentingNowPlaying) {
+            NowPlayingView()
+        }
+        .task {
+            await library.refresh()
+            if !didSelectInitialTab {
+                didSelectInitialTab = true
+                if !library.books(for: .continueListening).isEmpty {
+                    tab = .continueListening
+                }
+            }
+            await session.loadAccount()
+        }
     }
 }

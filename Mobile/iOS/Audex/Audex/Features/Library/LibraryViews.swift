@@ -4,198 +4,262 @@ struct LibraryView: View {
     let filter: LibraryFilter
 
     @Environment(LibraryStore.self) private var library
-    @Environment(PlaybackController.self) private var playback
 
     var body: some View {
         NavigationStack {
             Group {
+                let items = library.books(for: filter)
                 if library.isLoading && library.books.isEmpty {
-                    ProgressView()
+                    ProgressView("Loading library…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = library.errorMessage, library.books.isEmpty {
+                } else if let errorMessage = library.errorMessage, library.books.isEmpty {
                     ContentUnavailableView {
-                        Label("Couldn't load library", systemImage: "wifi.exclamationmark")
+                        Label("Couldn't Load Library", systemImage: "exclamationmark.triangle")
                     } description: {
-                        Text(error)
+                        Text(errorMessage)
                     } actions: {
                         Button("Retry") {
                             Task { await library.refresh() }
                         }
+                        .buttonStyle(.borderedProminent)
                     }
+                } else if items.isEmpty {
+                    ContentUnavailableView(
+                        filter.emptyTitle,
+                        systemImage: iconName,
+                        description: Text(filter.emptyMessage)
+                    )
                 } else {
-                    let items = library.books(for: filter)
-                    if items.isEmpty {
-                        ContentUnavailableView(filter.emptyMessage, systemImage: "books.vertical")
-                    } else {
+                    ScrollView {
                         BookGrid(books: items)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 24)
                     }
                 }
             }
-            .background(AudexColor.background.ignoresSafeArea())
             .navigationTitle(filter.title)
-            .navigationDestination(for: Int.self) { bookID in
-                BookDetailView(bookID: bookID)
-            }
             .refreshable {
                 await library.refresh()
             }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    if library.isLoading {
-                        ProgressView()
-                    }
+            .task {
+                if library.books.isEmpty {
+                    await library.refresh()
                 }
             }
-        }
-        .task {
-            if library.books.isEmpty {
-                await library.refresh()
+            .navigationDestination(for: Book.self) { book in
+                BookDetailView(bookID: book.id, initialBook: book)
             }
+        }
+    }
+
+    private var iconName: String {
+        switch filter {
+        case .all: return "books.vertical"
+        case .continueListening: return "play.circle"
+        case .recents: return "sparkles"
+        case .favorites: return "heart"
         }
     }
 }
 
 struct BookGrid: View {
     let books: [Book]
+    var onFavoriteToggle: ((Book) async -> Void)? = nil
+    var onComplete: ((Book) async -> Void)? = nil
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 300, maximum: 460), spacing: 14, alignment: .top)
+    ]
 
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-                ForEach(books) { book in
-                    NavigationLink(value: book.id) {
-                        BookCard(book: book)
-                    }
-                    .buttonStyle(.plain)
+        LazyVGrid(columns: columns, spacing: 14) {
+            ForEach(books) { book in
+                NavigationLink(value: book) {
+                    BookCard(
+                        book: book,
+                        onFavoriteToggle: onFavoriteToggle,
+                        onComplete: onComplete
+                    )
                 }
+                .buttonStyle(.plain)
             }
-            .padding(16)
         }
     }
 }
 
 struct BookCard: View {
     let book: Book
+    var onFavoriteToggle: ((Book) async -> Void)? = nil
+    var onComplete: ((Book) async -> Void)? = nil
 
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackController.self) private var playback
 
-    private var isThisPlaying: Bool {
-        playback.currentBook?.id == book.id && playback.isPlaying
-    }
-
     var body: some View {
+        let isThisPlaying = playback.currentBook?.id == book.id && playback.isPlaying
+        let isStarted = book.isStarted && !book.isCompleted
+
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                CoverImage(bookID: book.id, hasCover: book.hasCover, cornerRadius: 6)
-                    .frame(width: 80, height: 80)
+                CoverImage(bookID: book.id, hasCover: book.hasCover, cornerRadius: 10)
+                    .frame(width: 78, height: 78)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .top) {
+                    HStack(alignment: .top, spacing: 8) {
                         Text(book.displayTitle)
                             .font(.headline)
-                            .foregroundStyle(AudexColor.onSurface)
+                            .foregroundStyle(.primary)
                             .lineLimit(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .multilineTextAlignment(.leading)
+
+                        Spacer(minLength: 4)
+
                         Button {
-                            Task { await library.toggleFavorite(book) }
+                            Task {
+                                if let onFavoriteToggle {
+                                    await onFavoriteToggle(book)
+                                } else {
+                                    await library.toggleFavorite(book)
+                                }
+                            }
                         } label: {
                             Image(systemName: book.isFavorite ? "heart.fill" : "heart")
-                                .foregroundStyle(book.isFavorite ? AudexColor.favorite : AudexColor.onSurfaceVariant)
+                                .foregroundStyle(book.isFavorite ? Color.red : .secondary)
+                                .font(.body.weight(.semibold))
+                                .padding(4)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(book.isFavorite ? "Remove from Favorites" : "Add to Favorites")
                     }
+
                     Text(book.author)
                         .font(.subheadline)
-                        .foregroundStyle(AudexColor.primary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
+
                     if let readBy = book.readBy, !readBy.isEmpty {
-                        Text("Read by \(readBy)")
+                        Text("Narrated by \(readBy)")
                             .font(.caption)
-                            .foregroundStyle(AudexColor.onSurfaceVariant)
+                            .foregroundStyle(.tertiary)
                             .lineLimit(1)
                     }
                 }
             }
 
             HStack(spacing: 8) {
-                MetaChip(systemImage: "book", text: "\(book.chapterCount) chapter\(book.chapterCount == 1 ? "" : "s")")
-                MetaChip(systemImage: "clock", text: DurationFormat.short(book.durationSec))
-                if book.isCompleted {
-                    MetaChip(systemImage: "checkmark.circle", text: "Finished")
+                MetaChip(icon: "book.closed", text: "\(book.chapterCount) ch")
+                MetaChip(icon: "clock", text: DurationFormat.short(book.durationSec))
+                if let year = book.year {
+                    MetaChip(icon: "calendar", text: String(year))
                 }
             }
 
-            let genres = book.genres ?? []
+            let genres = book.genreList
             if !genres.isEmpty {
-                FlowLayout(spacing: 8) {
-                    ForEach(genres.prefix(6), id: \.self) { genre in
+                FlowLayout(spacing: 6) {
+                    ForEach(genres.prefix(3), id: \.self) { genre in
                         GenreChip(text: genre)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if book.isStarted, !book.isCompleted, book.durationSec > 0 {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: Double(book.progressSec), total: Double(max(book.durationSec, 1)))
-                        .tint(AudexColor.primary)
-                    Text("\(DurationFormat.short(book.progressSec)) of \(DurationFormat.short(book.durationSec))")
-                        .font(.caption)
-                        .foregroundStyle(AudexColor.onSurfaceVariant)
+            if isStarted {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("\(Int((book.progressFraction * 100).rounded()))% complete")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AudexColor.coral)
+                        Spacer()
+                        Text("\(DurationFormat.short(book.remainingSec)) left")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: book.progressFraction)
+                        .tint(AudexColor.coral)
+                }
+            } else if book.isCompleted {
+                Label("Completed", systemImage: "checkmark.seal.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AudexColor.amber)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await playback.play(bookID: book.id) }
+                } label: {
+                    Label(
+                        isThisPlaying ? "Pause" : (isStarted ? "Continue" : "Play"),
+                        systemImage: isThisPlaying ? "pause.fill" : "play.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AudexColor.coral)
+
+                if isStarted {
+                    Button {
+                        Task {
+                            if let onComplete {
+                                await onComplete(book)
+                            } else {
+                                await library.completeBook(book.id)
+                            }
+                        }
+                    } label: {
+                        Text("Mark as complete")
+                            .font(.caption.weight(.semibold))
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
-
-            Button {
-                Task { await playback.play(bookID: book.id) }
-            } label: {
-                Label(playTitle, systemImage: isThisPlaying ? "pause.fill" : "play.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.borderedProminent)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AudexColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var playTitle: String {
-        if isThisPlaying { return "PAUSE" }
-        if book.isCompleted { return "PLAY AGAIN" }
-        if book.isStarted { return "CONTINUE" }
-        return "PLAY"
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
+        )
     }
 }
 
 struct MetaChip: View {
-    let systemImage: String
+    let icon: String
     let text: String
 
     var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(AudexColor.primary.opacity(0.12), in: Capsule())
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.caption2)
+            Text(text)
+                .font(.caption.weight(.medium))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.06), in: Capsule())
     }
 }
 
 struct GenreChip: View {
     let text: String
-    var selected: Bool = false
 
     var body: some View {
-        Text(text)
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(selected ? .white : AudexColor.primary)
-            .background(
-                Capsule().fill(selected ? AudexColor.primary : Color.clear)
-            )
-            .overlay {
-                Capsule().stroke(AudexColor.primary.opacity(0.5))
-            }
+        HStack(spacing: 4) {
+            Image(systemName: "tag.fill")
+                .font(.system(size: 9))
+            Text(text)
+                .font(.caption2.weight(.medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(AudexColor.coral)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .overlay(
+            Capsule().strokeBorder(AudexColor.coral.opacity(0.45), lineWidth: 1)
+        )
     }
 }

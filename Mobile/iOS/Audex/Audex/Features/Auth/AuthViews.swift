@@ -2,207 +2,215 @@ import SwiftUI
 
 struct ServerSetupView: View {
     @Environment(AppSession.self) private var session
-    @State private var url = ""
-    @State private var error: String?
+
+    @State private var serverInput = ""
     @State private var isSaving = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
-                brand
-                Text("Connect to your Audex server")
-                    .font(.title2.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                Text("Enter the exact base URL of your Audex API. Nothing is added to it, so include any path you deployed under, for example http://192.168.1.10:5010/api")
-                    .font(.subheadline)
-                    .foregroundStyle(AudexColor.onSurfaceVariant)
-                    .multilineTextAlignment(.center)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Image(systemName: "waveform.book.closed.fill")
+                            .font(.system(size: 46))
+                            .foregroundStyle(AudexColor.coral)
+                            .symbolRenderingMode(.hierarchical)
 
-                TextField("https://your-server.example/api", text: $url)
-                    .textFieldStyle(.roundedBorder)
-                    .textContentType(.URL)
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    #endif
+                        Text("Connect to Audex")
+                            .font(.largeTitle.weight(.bold))
 
-                if let error {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Button {
-                    Task { await save() }
-                } label: {
-                    if isSaving {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text("Save and Continue")
-                            .frame(maxWidth: .infinity)
+                        Text("Enter the URL of your self-hosted Audex server to access your audiobook library.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Server URL")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        TextField("https://audex.example.com/api", text: $serverInput)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .textContentType(.URL)
+                            .padding(14)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+
+                    Button {
+                        Task { await connect() }
+                    } label: {
+                        HStack {
+                            if isSaving {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text("Save & Continue")
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AudexColor.coral)
+                    .disabled(isSaving || serverInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(isSaving || url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Spacer()
+                .padding(24)
+                .frame(maxWidth: 480)
+                .frame(maxWidth: .infinity)
             }
-            .padding(24)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AudexColor.background.ignoresSafeArea())
-            .navigationTitle("Audex")
-        }
-        .onAppear {
-            if url.isEmpty {
-                url = session.settings.serverURLString
+            .onAppear {
+                serverInput = session.settings.serverURLString
             }
         }
     }
 
-    private var brand: some View {
-        Image(systemName: "headphones")
-            .font(.system(size: 44, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 88, height: 88)
-            .background(AudexColor.primary, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private func save() async {
-        error = nil
+    private func connect() async {
+        errorMessage = nil
         isSaving = true
         defer { isSaving = false }
         do {
-            try await session.saveServerURL(url)
+            try await session.saveServerURL(serverInput)
         } catch {
-            self.error = error.localizedDescription
+            errorMessage = error.localizedDescription
         }
     }
 }
 
 struct LoginView: View {
     @Environment(AppSession.self) private var session
+
+    @State private var serverInput = ""
     @State private var email = ""
     @State private var password = ""
-    @State private var confirmPassword = ""
-    @State private var isRegistering = false
-    @State private var isWorking = false
-    @State private var error: String?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    Image(systemName: "headphones")
-                        .font(.system(size: 36, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 72, height: 72)
-                        .background(AudexColor.primary, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .padding(.top, 32)
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Image(systemName: "headphones.circle.fill")
+                            .font(.system(size: 48))
+                            .foregroundStyle(AudexColor.coral)
 
-                    Text(isRegistering ? "Create account" : "Audex Login")
-                        .font(.largeTitle.bold())
+                        Text("Welcome back")
+                            .font(.largeTitle.weight(.bold))
 
-                    if let message = session.sessionExpiredMessage, !isRegistering {
-                        Text(message)
+                        Text("Sign in to your Audex server")
                             .font(.subheadline)
-                            .foregroundStyle(AudexColor.primary)
+                            .foregroundStyle(.secondary)
                     }
 
-                    TextField("Email", text: $email)
-                        .textFieldStyle(.roundedBorder)
-                        .textContentType(.username)
-                        #if os(iOS)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
-
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(.roundedBorder)
-                        .textContentType(isRegistering ? .newPassword : .password)
-
-                    if isRegistering {
-                        SecureField("Confirm password", text: $confirmPassword)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(.newPassword)
+                    if let banner = session.sessionBannerMessage {
+                        Label(banner, systemImage: "clock.badge.exclamationmark")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(AudexColor.coral)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AudexColor.coral.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                     }
 
-                    if let error {
-                        Text(error)
+                    VStack(spacing: 14) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Server URL")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            TextField("https://your-server.com/api", text: $serverInput)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .textContentType(.URL)
+                                .padding(14)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Email")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            TextField("you@example.com", text: $email)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.emailAddress)
+                                .textContentType(.username)
+                                .padding(14)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Password")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            SecureField("Password", text: $password)
+                                .textContentType(.password)
+                                .padding(14)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
                             .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     Button {
-                        Task { await submit() }
+                        Task { await signIn() }
                     } label: {
-                        if isWorking {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text(isRegistering ? "Register" : "Login")
-                                .frame(maxWidth: .infinity)
+                        HStack {
+                            if isLoading {
+                                ProgressView().tint(.white)
+                            } else {
+                                Text("Sign In")
+                                    .fontWeight(.semibold)
+                            }
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                     }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(isWorking)
-
-                    Button(isRegistering ? "Already have an account? Log in" : "Need an account? Register") {
-                        isRegistering.toggle()
-                        error = nil
-                    }
-                    .font(.subheadline)
-
-                    Button("Change server") {
-                        session.clearServerURL()
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(AudexColor.onSurfaceVariant)
+                    .tint(AudexColor.coral)
+                    .disabled(
+                        isLoading
+                            || serverInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || password.isEmpty
+                    )
                 }
                 .padding(24)
                 .frame(maxWidth: 480)
                 .frame(maxWidth: .infinity)
             }
-            .background(AudexColor.background.ignoresSafeArea())
+            .onAppear {
+                serverInput = !session.settings.serverURLString.isEmpty
+                    ? session.settings.serverURLString
+                    : (session.serverURL?.absoluteString ?? "")
+            }
         }
     }
 
-    private func submit() async {
-        error = nil
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedEmail.isEmpty, !password.isEmpty else {
-            error = "Email and password are required."
-            return
-        }
-        if isRegistering {
-            guard password.count >= 6 else {
-                error = "Password must be at least 6 characters."
-                return
-            }
-            guard password == confirmPassword else {
-                error = "Passwords do not match."
-                return
-            }
-        }
-
-        isWorking = true
-        defer { isWorking = false }
+    private func signIn() async {
+        errorMessage = nil
+        isLoading = true
+        defer { isLoading = false }
         do {
-            if isRegistering {
-                try await session.register(email: trimmedEmail, password: password)
-            } else {
-                try await session.login(email: trimmedEmail, password: password)
-            }
+            try session.applyServerURLWithoutRemoteValidation(serverInput)
+            try await session.login(email: email, password: password)
         } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            self.error = message.isEmpty ? "Login failed" : message
+            errorMessage = error.localizedDescription
         }
     }
 }

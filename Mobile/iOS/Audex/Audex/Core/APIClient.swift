@@ -1,271 +1,334 @@
 import Foundation
 
 enum APIError: LocalizedError {
-    case notConfigured
+    case missingServerURL
+    case invalidServerURL
     case unauthorized
-    case status(Int, String?)
-    case decoding(Error)
-    case transport(Error)
-    case message(String)
+    case httpStatus(Int, String?)
+    case invalidResponse
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured:
-            "Server URL is not configured"
+        case .missingServerURL:
+            return "Configure your Audex server URL to continue."
+        case .invalidServerURL:
+            return "Enter a valid http:// or https:// server URL."
         case .unauthorized:
-            "Invalid email or password"
-        case .status(let code, let message):
-            message ?? "Request failed (HTTP \(code))"
-        case .decoding:
-            "Couldn't read the server response"
-        case .transport(let error):
-            error.localizedDescription
-        case .message(let message):
-            message
+            return "Your session expired. Please sign in again."
+        case .httpStatus(let code, let message):
+            if let message, !message.isEmpty {
+                return message
+            }
+            return "Server returned HTTP \(code)."
+        case .invalidResponse:
+            return "Received an unexpected response from the server."
         }
     }
 }
 
-final class APIClient: @unchecked Sendable {
-    var origin: URL?
+@MainActor
+final class APIClient {
+    var baseURL: URL?
     var token: String?
     var onUnauthorized: (() -> Void)?
+    var onTokenRefreshed: ((String) -> Void)?
 
     private let session: URLSession
-    private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
     private var isRefreshing = false
 
-    init() {
+    nonisolated static func normalize(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withTrailingSlash = trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
+        guard let url = URL(string: withTrailingSlash),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host != nil else {
+            return nil
+        }
+        return url
+    }
+
+    init(baseURL: URL? = nil, token: String? = nil) {
+        self.baseURL = baseURL
+        self.token = token
+
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 30
-        config.httpAdditionalHeaders = ["User-Agent": "Audex-iOS"]
-        session = URLSession(configuration: config)
-        encoder.outputFormatting = [.sortedKeys]
+        config.timeoutIntervalForResource = 600
+        self.session = URLSession(configuration: config)
+
+        let decoder = JSONDecoder()
+        self.decoder = decoder
+        self.encoder = JSONEncoder()
     }
 
-    static func normalize(_ raw: String) -> URL? {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        if !value.contains("://") {
-            value = "https://\(value)"
+    func resolvedURL(_ path: String) throws -> URL {
+        guard let baseURL else { throw APIError.missingServerURL }
+        let trimmed = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        if let url = URL(string: trimmed, relativeTo: baseURL)?.absoluteURL {
+            return url
         }
-        while value.hasSuffix("/") {
-            value.removeLast()
-        }
-        return URL(string: value)
+        throw APIError.invalidServerURL
     }
 
-    func validateServer(_ raw: String) async throws -> URL {
-        guard let origin = Self.normalize(raw) else {
-            throw APIError.message("Invalid Server URL")
+    func coverURL(for bookID: Int) -> URL? {
+        try? resolvedURL("books/\(bookID)/cover")
+    }
+
+    func chapterStreamURL(for chapterID: Int, streamPath: String? = nil) -> URL? {
+        if let streamPath, !streamPath.isEmpty, let url = try? resolvedURL(streamPath) {
+            return url
         }
-        var request = URLRequest(url: try url("books", origin: origin))
-        request.timeoutInterval = 8
-        do {
-            let (_, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw APIError.message("Connection failed")
-            }
-            if http.statusCode == 404 {
-                throw APIError.message("No Audex API at this URL")
-            }
-            return origin
-        } catch let error as APIError {
-            throw error
-        } catch {
-            throw APIError.transport(error)
+        return try? resolvedURL("chapters/\(chapterID)/audio")
+    }
+
+    func chapterDownloadURL(for chapter: Chapter) -> URL? {
+        if !chapter.downloadUrl.isEmpty, let url = try? resolvedURL(chapter.downloadUrl) {
+            return url
+        }
+        return try? resolvedURL("chapters/\(chapter.id)/download")
+    }
+
+    func authorizedHeaderValue() -> [String: String] {
+        guard let token, !token.isEmpty else { return [:] }
+        return ["Authorization": "Bearer \(token)"]
+    }
+
+    func validateServer(url: URL) async throws {
+        var request = URLRequest(url: url.appendingPathComponent("books"))
+        request.httpMethod = "GET"
+        if let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (_, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<500).contains(http.statusCode) else {
+            throw APIError.httpStatus(http.statusCode, nil)
         }
     }
 
     func login(email: String, password: String) async throws -> AuthResponse {
-        try await post("login", body: LoginRequest(email: email, password: password), authorized: false)
-    }
-
-    func register(email: String, password: String) async throws -> AuthResponse {
-        try await post("register", body: LoginRequest(email: email, password: password), authorized: false)
+        let body = try encoder.encode(LoginRequest(email: email, password: password))
+        return try await request("POST", path: "login", body: body, authorized: false)
     }
 
     func refresh() async throws -> AuthResponse {
-        try decode(try await send(method: "POST", path: "refresh", body: nil, authorized: true))
+        return try await request("POST", path: "refresh", authorized: true)
     }
 
     func books() async throws -> [Book] {
-        try await get("books")
+        try await request("GET", path: "books")
     }
 
     func book(id: Int) async throws -> BookDetail {
-        try await get("books/\(id)")
+        try await request("GET", path: "books/\(id)")
     }
 
-    func updateProgress(userID: Int, update: ProgressUpdate) async throws {
-        let _: Data = try await data(
-            method: "POST",
-            path: "users/\(userID)/progress",
-            body: update,
-            authorized: true
-        )
+    func playlists() async throws -> [Playlist] {
+        try await request("GET", path: "playlists")
     }
 
-    func setFavorite(id: Int, isFavorite: Bool) async throws {
-        _ = try await send(
-            method: isFavorite ? "PUT" : "DELETE",
-            path: "books/\(id)/favorite",
-            body: nil,
-            authorized: true
-        )
+    func playlist(id: Int) async throws -> Playlist {
+        try await request("GET", path: "playlists/\(id)")
+    }
+
+    func setFavorite(bookID: Int, isFavorite: Bool) async throws {
+        let method = isFavorite ? "PUT" : "DELETE"
+        _ = try await send(method: method, path: "books/\(bookID)/favorite", body: nil, authorized: true)
+    }
+
+    func completeBook(id: Int) async throws {
+        do {
+            _ = try await send(method: "PUT", path: "books/\(id)/complete", body: nil, authorized: true)
+        } catch {
+            do {
+                _ = try await send(method: "POST", path: "books/\(id)/complete", body: nil, authorized: true)
+            } catch {
+                _ = try await send(method: "PUT", path: "books/\(id)/completed", body: nil, authorized: true)
+            }
+        }
+    }
+
+    func updateProgress(userID: Int, progress: ProgressUpdate) async throws {
+        let body = try encoder.encode(progress)
+        _ = try await send(method: "POST", path: "users/\(userID)/progress", body: body, authorized: true)
     }
 
     func account() async throws -> Account {
-        try await get("account")
+        try await request("GET", path: "account")
     }
 
-    func updateEmail(newEmail: String, currentPassword: String) async throws -> EmailChangeResponse {
-        try await put("account/email", body: ChangeEmailRequest(newEmail: newEmail, currentPassword: currentPassword))
+    func changeEmail(newEmail: String, currentPassword: String) async throws -> EmailChangeResponse {
+        let body = try encoder.encode(ChangeEmailRequest(newEmail: newEmail, currentPassword: currentPassword))
+        return try await request("PUT", path: "account/email", body: body)
     }
 
-    func updatePassword(currentPassword: String, newPassword: String) async throws {
-        let _: Data = try await data(
-            method: "PUT",
-            path: "account/password",
-            body: ChangePasswordRequest(currentPassword: currentPassword, newPassword: newPassword),
-            authorized: true
-        )
+    func changePassword(currentPassword: String, newPassword: String) async throws -> MessageResponse {
+        let body = try encoder.encode(ChangePasswordRequest(currentPassword: currentPassword, newPassword: newPassword))
+        return try await request("PUT", path: "account/password", body: body)
     }
 
-    func coverURL(for bookID: Int) -> URL? {
-        try? url("books/\(bookID)/cover")
-    }
-
-    func audioURL(chapterID: Int) -> URL? {
-        try? url("chapters/\(chapterID)/audio")
-    }
-
-    func downloadURL(chapterID: Int) -> URL? {
-        try? url("chapters/\(chapterID)/download")
-    }
-
-    func authenticatedRequest(url: URL) -> URLRequest {
+    func downloadFile(from url: URL, to destinationURL: URL) async throws {
+        await refreshIfNeeded()
         var request = URLRequest(url: url)
-        request.setValue("Audex-iOS", forHTTPHeaderField: "User-Agent")
-        if let token {
+        request.httpMethod = "GET"
+        if let token, !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        return request
-    }
-
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        try decode(try await send(method: "GET", path: path, body: nil as Data?, authorized: true))
-    }
-
-    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, authorized: Bool) async throws -> T {
-        try decode(try await send(method: "POST", path: path, body: encoder.encode(body), authorized: authorized))
-    }
-
-    private func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
-        try decode(try await send(method: "PUT", path: path, body: encoder.encode(body), authorized: true))
-    }
-
-    private func decode<T: Decodable>(_ payload: Data) throws -> T {
-        do {
-            return try decoder.decode(T.self, from: payload)
-        } catch {
-            throw APIError.decoding(error)
-        }
-    }
-
-    private func data(method: String, path: String, body: (any Encodable)?, authorized: Bool) async throws -> Data {
-        let encoded: Data?
-        if let body {
-            encoded = try encoder.encode(AnyEncodable(body))
-        } else {
-            encoded = nil
-        }
-        return try await send(method: method, path: path, body: encoded, authorized: authorized)
-    }
-
-    private func send(method: String, path: String, body: Data?, authorized: Bool) async throws -> Data {
-        if authorized {
-            try await refreshIfNeeded()
-        }
-
-        var request = URLRequest(url: try url(path))
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if authorized, let token {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = body
-        }
-
-        let payload: Data
-        let response: URLResponse
-        do {
-            (payload, response) = try await session.data(for: request)
-        } catch {
-            throw APIError.transport(error)
-        }
-
+        let (tempURL, response) = try await session.download(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw APIError.message("Connection failed")
+            throw APIError.invalidResponse
+        }
+        if http.statusCode == 401 {
+            if await attemptTokenRefresh(), let token, !token.isEmpty {
+                var retryRequest = URLRequest(url: url)
+                retryRequest.httpMethod = "GET"
+                retryRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                let (retryTempURL, retryResponse) = try await session.download(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else {
+                    throw APIError.invalidResponse
+                }
+                if (200..<300).contains(retryHttp.statusCode) {
+                    try moveDownloadedFile(from: retryTempURL, to: destinationURL)
+                    return
+                }
+                if retryHttp.statusCode == 401 {
+                    handleSessionExpired()
+                    throw APIError.unauthorized
+                }
+                throw APIError.httpStatus(retryHttp.statusCode, nil)
+            }
+            handleSessionExpired()
+            throw APIError.unauthorized
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw APIError.httpStatus(http.statusCode, nil)
+        }
+        try moveDownloadedFile(from: tempURL, to: destinationURL)
+    }
+
+    private func moveDownloadedFile(from tempURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        let directory = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.moveItem(at: tempURL, to: destinationURL)
+    }
+
+    private func request<T: Decodable>(
+        _ method: String,
+        path: String,
+        body: Data? = nil,
+        authorized: Bool = true
+    ) async throws -> T {
+        let data = try await send(method: method, path: path, body: body, authorized: authorized)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func send(
+        method: String,
+        path: String,
+        body: Data?,
+        authorized: Bool,
+        allowRetryOn401: Bool = true
+    ) async throws -> Data {
+        let cleanPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let isAuthRequest = cleanPath == "login" || cleanPath == "register" || cleanPath.hasSuffix("/login") || cleanPath.hasSuffix("/register")
+        let isRefreshRequest = cleanPath == "refresh" || cleanPath.hasSuffix("/refresh")
+
+        if authorized && !isAuthRequest && !isRefreshRequest {
+            await refreshIfNeeded()
+        }
+
+        let url = try resolvedURL(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if authorized && !isAuthRequest, let token, !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
         }
 
         if http.statusCode == 401 {
-            if authorized {
-                token = nil
-                onUnauthorized?()
+            if isAuthRequest || !authorized {
+                let message = (try? decoder.decode(MessageResponse.self, from: data))?.message
+                    ?? "Invalid email or password"
+                throw APIError.httpStatus(401, message)
             }
+
+            if !isRefreshRequest && allowRetryOn401 {
+                if await attemptTokenRefresh() {
+                    return try await send(
+                        method: method,
+                        path: path,
+                        body: body,
+                        authorized: authorized,
+                        allowRetryOn401: false
+                    )
+                }
+            }
+
+            handleSessionExpired()
             throw APIError.unauthorized
         }
 
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? decoder.decode(MessageResponse.self, from: payload))?.message
-            throw APIError.status(http.statusCode, message)
+            let message = (try? decoder.decode(MessageResponse.self, from: data))?.message
+            throw APIError.httpStatus(http.statusCode, message)
         }
 
-        return payload
+        return data
     }
 
-    private func refreshIfNeeded() async throws {
-        guard let token, JWTClaims.isNearExpiry(token) else { return }
-        guard !isRefreshing else { return }
+    private func refreshIfNeeded() async {
+        guard !isRefreshing, let token, JWTClaims.isNearExpiry(token) else { return }
+        _ = await attemptTokenRefresh()
+    }
+
+    private func attemptTokenRefresh() async -> Bool {
+        guard !isRefreshing, let currentToken = token, !currentToken.isEmpty else { return false }
         isRefreshing = true
         defer { isRefreshing = false }
         do {
-            let response = try await refresh()
-            self.token = response.token
-            KeychainStore.save(response.token)
+            let url = try resolvedURL("refresh")
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("Bearer \(currentToken)", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return false
+            }
+            let refreshed = try decoder.decode(AuthResponse.self, from: data)
+            self.token = refreshed.token
+            KeychainStore.save(refreshed.token)
+            onTokenRefreshed?(refreshed.token)
+            return true
         } catch {
-            // Keep going with the current token; a later 401 handles expiry.
+            return false
         }
     }
 
-    private func url(_ path: String, origin: URL? = nil) throws -> URL {
-        guard let origin = origin ?? self.origin else { throw APIError.notConfigured }
-        guard var components = URLComponents(url: origin, resolvingAgainstBaseURL: false) else {
-            throw APIError.notConfigured
-        }
-        let base = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
-        let trimmedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        components.path = base.isEmpty ? "/\(trimmedPath)" : "\(base)/\(trimmedPath)"
-        guard let url = components.url else { throw APIError.notConfigured }
-        return url
-    }
-}
-
-private struct AnyEncodable: Encodable {
-    private let encodeClosure: (Encoder) throws -> Void
-
-    init(_ value: any Encodable) {
-        encodeClosure = { encoder in
-            try value.encode(to: encoder)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        try encodeClosure(encoder)
+    private func handleSessionExpired() {
+        token = nil
+        KeychainStore.delete()
+        onUnauthorized?()
     }
 }

@@ -8,6 +8,9 @@ enum AudexColor {
     static let onSurface = Color("AudexOnSurface")
     static let onSurfaceVariant = Color("AudexOnSurfaceVariant")
     static let favorite = Color.red
+
+    static let coral = primary
+    static let amber = secondary
 }
 
 enum AudexTheme {

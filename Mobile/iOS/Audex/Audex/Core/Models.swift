@@ -10,18 +10,20 @@ struct LoginRequest: Codable {
 }
 
 struct MessageResponse: Codable {
-    let message: String
+    let message: String?
 }
 
 struct Account: Codable {
     let id: Int
     let email: String
-    let prefersDarkMode: Bool
+    let role: String
+    let isDefaultAdmin: Bool
 }
 
 struct EmailChangeResponse: Codable {
-    let token: String
+    let message: String?
     let email: String
+    let token: String
 }
 
 struct ChangeEmailRequest: Codable {
@@ -43,27 +45,22 @@ struct ProgressUpdate: Codable {
 struct Chapter: Codable, Identifiable, Hashable {
     let id: Int
     let title: String
-    let durationSec: Int
     let trackNumber: Int
-    var audioUrl: String
-    var downloadUrl: String
+    let durationSec: Int
+    let streamUrl: String
+    let downloadUrl: String
 
-    init(id: Int, title: String, durationSec: Int, trackNumber: Int, audioUrl: String = "", downloadUrl: String = "") {
-        self.id = id
-        self.title = title
-        self.durationSec = durationSec
-        self.trackNumber = trackNumber
-        self.audioUrl = audioUrl
-        self.downloadUrl = downloadUrl
+    enum CodingKeys: String, CodingKey {
+        case id, title, trackNumber, durationSec, streamUrl, downloadUrl
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
-        title = try container.decode(String.self, forKey: .title)
-        durationSec = try container.decode(Int.self, forKey: .durationSec)
-        trackNumber = try container.decode(Int.self, forKey: .trackNumber)
-        audioUrl = try container.decodeIfPresent(String.self, forKey: .audioUrl) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "Chapter"
+        trackNumber = try container.decodeIfPresent(Int.self, forKey: .trackNumber) ?? 0
+        durationSec = try container.decodeIfPresent(Int.self, forKey: .durationSec) ?? 0
+        streamUrl = try container.decodeIfPresent(String.self, forKey: .streamUrl) ?? ""
         downloadUrl = try container.decodeIfPresent(String.self, forKey: .downloadUrl) ?? ""
     }
 }
@@ -71,166 +68,239 @@ struct Chapter: Codable, Identifiable, Hashable {
 struct Book: Codable, Identifiable, Hashable {
     let id: Int
     let title: String
-    var customTitle: String?
-    var subtitle: String?
+    let customTitle: String?
+    let subtitle: String?
     let author: String
-    var year: Int?
-    var readBy: String?
+    let year: Int?
+    let readBy: String?
     let durationSec: Int
     let chapterCount: Int
     let hasCover: Bool
-    var description: String?
-    var publisher: String?
-    var language: String?
-    var isbn10: String?
-    var isbn13: String?
-    var pageCount: Int?
-    var rating: Double?
-    var ratingCount: Int?
-    var openLibraryUrl: String?
+    let description: String?
+    let publisher: String?
+    let language: String?
+    let isbn10: String?
+    let isbn13: String?
+    let pageCount: Int?
+    let rating: Double?
+    let ratingCount: Int?
+    let openLibraryUrl: String?
     let addedAt: String
-    let progressSec: Int
-    let isCompleted: Bool
+    var progressSec: Int
+    var isCompleted: Bool
     var isFavorite: Bool
-    var lastPlayedAt: String?
-    var resumeChapterId: Int?
+    let lastPlayedAt: String?
+    let resumeChapterId: Int?
     let resumePositionSec: Int
-    var genres: [String]? = []
-
-    var isStarted: Bool { lastPlayedAt != nil }
+    let genres: [String]?
 
     var displayTitle: String {
-        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return custom.isEmpty ? title : custom
+        if let customTitle, !customTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return customTitle
+        }
+        return title
     }
 
-    var artistLine: String {
-        Self.artistLine(author: author, readBy: readBy)
+    var isStarted: Bool {
+        lastPlayedAt != nil || resumePositionSec > 0 || resumeChapterId != nil
     }
 
-    static func artistLine(author: String, readBy: String?) -> String {
-        let author = author.trimmingCharacters(in: .whitespacesAndNewlines)
-        let narrator = (readBy ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if !author.isEmpty, !narrator.isEmpty { return "\(author) · Read by \(narrator)" }
-        if !author.isEmpty { return author }
-        if !narrator.isEmpty { return "Read by \(narrator)" }
-        return ""
+    var progressFraction: Double {
+        guard durationSec > 0 else { return 0 }
+        return min(1, max(0, Double(progressSec) / Double(durationSec)))
+    }
+
+    var remainingSec: Int {
+        max(0, durationSec - progressSec)
+    }
+
+    var genreList: [String] {
+        genres ?? []
     }
 }
 
 struct BookDetail: Codable, Identifiable, Hashable {
     let id: Int
     let title: String
-    var customTitle: String?
-    var subtitle: String?
+    let customTitle: String?
+    let subtitle: String?
     let author: String
-    var year: Int?
-    var readBy: String?
+    let year: Int?
+    let readBy: String?
     let durationSec: Int
     let chapterCount: Int
     let hasCover: Bool
-    var description: String?
-    var publisher: String?
-    var language: String?
-    var isbn10: String?
-    var isbn13: String?
-    var pageCount: Int?
-    var rating: Double?
-    var ratingCount: Int?
-    var openLibraryUrl: String?
+    let description: String?
+    let publisher: String?
+    let language: String?
+    let isbn10: String?
+    let isbn13: String?
+    let pageCount: Int?
+    let rating: Double?
+    let ratingCount: Int?
+    let openLibraryUrl: String?
     let addedAt: String
-    let progressSec: Int
-    let isCompleted: Bool
+    var progressSec: Int
+    var isCompleted: Bool
     var isFavorite: Bool
-    var lastPlayedAt: String?
-    var resumeChapterId: Int?
+    let lastPlayedAt: String?
+    let resumeChapterId: Int?
     let resumePositionSec: Int
-    var genres: [String]? = []
-    var chapters: [Chapter] = []
-
-    var isStarted: Bool { lastPlayedAt != nil }
+    let genres: [String]?
+    let chapters: [Chapter]?
 
     var displayTitle: String {
-        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return custom.isEmpty ? title : custom
+        if let customTitle, !customTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return customTitle
+        }
+        return title
     }
 
     var artistLine: String {
-        Book.artistLine(author: author, readBy: readBy)
+        if let readBy, !readBy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "\(author) · Read by \(readBy)"
+        }
+        return author
+    }
+
+    var isStarted: Bool {
+        lastPlayedAt != nil || resumePositionSec > 0 || resumeChapterId != nil
+    }
+
+    var progressFraction: Double {
+        guard durationSec > 0 else { return 0 }
+        return min(1, max(0, Double(progressSec) / Double(durationSec)))
+    }
+
+    var remainingSec: Int {
+        max(0, durationSec - progressSec)
     }
 
     var sortedChapters: [Chapter] {
-        chapters.sorted { lhs, rhs in
-            if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
-            return lhs.id < rhs.id
+        (chapters ?? []).sorted { lhs, rhs in
+            if lhs.trackNumber == rhs.trackNumber {
+                return lhs.id < rhs.id
+            }
+            return lhs.trackNumber < rhs.trackNumber
         }
+    }
+
+    var asBook: Book {
+        Book(
+            id: id,
+            title: title,
+            customTitle: customTitle,
+            subtitle: subtitle,
+            author: author,
+            year: year,
+            readBy: readBy,
+            durationSec: durationSec,
+            chapterCount: chapterCount,
+            hasCover: hasCover,
+            description: description,
+            publisher: publisher,
+            language: language,
+            isbn10: isbn10,
+            isbn13: isbn13,
+            pageCount: pageCount,
+            rating: rating,
+            ratingCount: ratingCount,
+            openLibraryUrl: openLibraryUrl,
+            addedAt: addedAt,
+            progressSec: progressSec,
+            isCompleted: isCompleted,
+            isFavorite: isFavorite,
+            lastPlayedAt: lastPlayedAt,
+            resumeChapterId: resumeChapterId,
+            resumePositionSec: resumePositionSec,
+            genres: genres
+        )
     }
 }
 
-extension BookDetail {
+struct Playlist: Codable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+    var isAutoGenerated: Bool
+    var ownerUserId: Int?
+    var ownerEmail: String?
+    var canEdit: Bool
+    let createdAt: String
+    let updatedAt: String
+    var books: [Book]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, isAutoGenerated, ownerUserId, ownerEmail, canEdit, createdAt, updatedAt, books
+    }
+
+    init(
+        id: Int,
+        name: String,
+        isAutoGenerated: Bool = false,
+        ownerUserId: Int? = nil,
+        ownerEmail: String? = nil,
+        canEdit: Bool = false,
+        createdAt: String = "",
+        updatedAt: String = "",
+        books: [Book] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.isAutoGenerated = isAutoGenerated
+        self.ownerUserId = ownerUserId
+        self.ownerEmail = ownerEmail
+        self.canEdit = canEdit
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.books = books
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
-        title = try container.decode(String.self, forKey: .title)
-        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
-        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
-        author = try container.decode(String.self, forKey: .author)
-        year = try container.decodeIfPresent(Int.self, forKey: .year)
-        readBy = try container.decodeIfPresent(String.self, forKey: .readBy)
-        durationSec = try container.decode(Int.self, forKey: .durationSec)
-        chapterCount = try container.decode(Int.self, forKey: .chapterCount)
-        hasCover = try container.decode(Bool.self, forKey: .hasCover)
-        description = try container.decodeIfPresent(String.self, forKey: .description)
-        publisher = try container.decodeIfPresent(String.self, forKey: .publisher)
-        language = try container.decodeIfPresent(String.self, forKey: .language)
-        isbn10 = try container.decodeIfPresent(String.self, forKey: .isbn10)
-        isbn13 = try container.decodeIfPresent(String.self, forKey: .isbn13)
-        pageCount = try container.decodeIfPresent(Int.self, forKey: .pageCount)
-        rating = try container.decodeIfPresent(Double.self, forKey: .rating)
-        ratingCount = try container.decodeIfPresent(Int.self, forKey: .ratingCount)
-        openLibraryUrl = try container.decodeIfPresent(String.self, forKey: .openLibraryUrl)
-        addedAt = try container.decode(String.self, forKey: .addedAt)
-        progressSec = try container.decodeIfPresent(Int.self, forKey: .progressSec) ?? 0
-        isCompleted = try container.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
-        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
-        lastPlayedAt = try container.decodeIfPresent(String.self, forKey: .lastPlayedAt)
-        resumeChapterId = try container.decodeIfPresent(Int.self, forKey: .resumeChapterId)
-        resumePositionSec = try container.decodeIfPresent(Int.self, forKey: .resumePositionSec) ?? 0
-        genres = try container.decodeIfPresent([String].self, forKey: .genres) ?? []
-        chapters = try container.decodeIfPresent([Chapter].self, forKey: .chapters) ?? []
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Series"
+        isAutoGenerated = try container.decodeIfPresent(Bool.self, forKey: .isAutoGenerated) ?? false
+        ownerUserId = try container.decodeIfPresent(Int.self, forKey: .ownerUserId)
+        ownerEmail = try container.decodeIfPresent(String.self, forKey: .ownerEmail)
+        canEdit = try container.decodeIfPresent(Bool.self, forKey: .canEdit) ?? false
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+        books = try container.decodeIfPresent([Book].self, forKey: .books) ?? []
     }
 }
 
-enum LibraryFilter: String, Hashable, CaseIterable {
+enum LibraryFilter: String, CaseIterable, Identifiable {
     case all
     case continueListening
     case recents
     case favorites
 
+    var id: String { rawValue }
+
     var title: String {
         switch self {
-        case .all: "My Library"
-        case .continueListening: "Continue Listening"
-        case .recents: "Recently Added"
-        case .favorites: "Favorites"
+        case .all: return "My Library"
+        case .continueListening: return "Continue Listening"
+        case .recents: return "Recently Added"
+        case .favorites: return "Favorites"
         }
     }
 
-    var subtitle: String? {
+    var emptyTitle: String {
         switch self {
-        case .all: nil
-        case .continueListening: "Books you've started but haven't finished"
-        case .recents: "The latest audiobooks added to your library"
-        case .favorites: "Books you've marked as favorites"
+        case .all: return "Your library is empty"
+        case .continueListening: return "Nothing in progress"
+        case .recents: return "No recent additions"
+        case .favorites: return "No favorites yet"
         }
     }
 
     var emptyMessage: String {
         switch self {
-        case .all: "No books found"
-        case .continueListening: "Nothing in progress"
-        case .recents: "No recently added books"
-        case .favorites: "No favorites yet"
+        case .all: return "Books added to your Audex server will appear here."
+        case .continueListening: return "Start listening to an audiobook to pick up where you left off."
+        case .recents: return "Recently added audiobooks will appear here."
+        case .favorites: return "Tap the heart on any audiobook to save it to Favorites."
         }
     }
 }

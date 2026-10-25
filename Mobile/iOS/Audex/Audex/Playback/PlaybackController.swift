@@ -1,100 +1,188 @@
 import AVFoundation
 import Foundation
 import MediaPlayer
-#if os(macOS)
-import AppKit
-#else
+import Observation
+#if canImport(UIKit)
 import UIKit
 #endif
 
+@MainActor
 @Observable
 final class PlaybackController {
-    var currentBook: BookDetail?
-    var isPlaying = false
-    var currentPosition: TimeInterval = 0
-    var currentDuration: TimeInterval = 0
-    var currentChapterIndex = 0
-    var isNowPlayingPresented = false
-    var sleepEndsAt: Date?
-    var sleepRemaining: TimeInterval?
+    static let speedOptions: [Float] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
-    var rate: Float {
-        didSet {
-            if isPlaying { player.rate = rate }
-            session.settings.playbackRate = rate
-            updateNowPlaying()
-        }
-    }
-
-    var chapters: [Chapter] { currentBook?.sortedChapters ?? [] }
-    var currentChapter: Chapter? {
-        chapters.indices.contains(currentChapterIndex) ? chapters[currentChapterIndex] : nil
-    }
-    var hasMultipleChapters: Bool { chapters.count > 1 }
-
-    static let speedOptions: [Float] = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
-
-    private let player = AVPlayer()
     private let session: AppSession
     private let downloads: DownloadManager
+    private let library: LibraryStore
+
+    private let player = AVPlayer()
+    #if os(iOS)
+    private var nowPlayingSession: MPNowPlayingSession?
+    #endif
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
-    private var statusObserver: NSKeyValueObservation?
-    private var lastSync = Date.distantPast
-    private var sleepTask: Task<Void, Never>?
-    private var coverArtwork: MPMediaItemArtwork?
-    private var commandsConfigured = false
-    #if os(iOS) || os(tvOS) || os(visionOS)
-    private let nowPlayingSession: MPNowPlayingSession
-    #endif
+    private var sleepTimerTask: Task<Void, Never>?
+    private var lastSyncDate: Date = .distantPast
+    private var artworkImage: MPMediaItemArtwork?
+    private var artworkBookID: Int?
 
-    init(session: AppSession, downloads: DownloadManager) {
-        self.session = session
-        self.downloads = downloads
-        self.rate = session.settings.playbackRate
-        player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        let nowPlaying = MPNowPlayingSession(players: [player])
-        nowPlaying.automaticallyPublishesNowPlayingInfo = true
-        nowPlayingSession = nowPlaying
-        #endif
-        configureObservers()
-        configureRemoteCommands()
+    var currentBook: BookDetail?
+    var currentChapterIndex: Int = 0
+    var isPlaying: Bool = false
+    var currentPosition: Double = 0
+    var currentDuration: Double = 0
+    var rate: Float = 1.0 {
+        didSet {
+            session.settings.playbackRate = rate
+            if isPlaying {
+                player.rate = rate
+            }
+            publishNowPlaying()
+        }
+    }
+    var sleepEndsAt: Date?
+    var sleepTimerRemainingSec: Int?
+    var isPresentingNowPlaying: Bool = false
+
+    var isNowPlayingPresented: Bool {
+        get { isPresentingNowPlaying }
+        set { isPresentingNowPlaying = newValue }
     }
 
-    func play(bookID: Int, chapterIndex: Int? = nil) async {
-        if currentBook?.id == bookID, chapterIndex == nil {
+    var sleepRemaining: TimeInterval? {
+        guard let remaining = sleepTimerRemainingSec else { return nil }
+        return TimeInterval(remaining)
+    }
+
+    var chapters: [Chapter] {
+        currentBook?.sortedChapters ?? []
+    }
+
+    init(session: AppSession, downloads: DownloadManager, library: LibraryStore) {
+        self.session = session
+        self.downloads = downloads
+        self.library = library
+        self.rate = session.settings.playbackRate
+        configureAudioSession()
+        installTimeObserver()
+    }
+
+    var currentChapter: Chapter? {
+        let list = chapters
+        guard list.indices.contains(currentChapterIndex) else {
+            return nil
+        }
+        return list[currentChapterIndex]
+    }
+
+    var hasMultipleChapters: Bool {
+        chapters.count > 1
+    }
+
+    var canSkipPreviousChapter: Bool {
+        currentChapterIndex > 0
+    }
+
+    var canSkipNextChapter: Bool {
+        currentChapterIndex < chapters.count - 1
+    }
+
+    func play(bookID: Int) async {
+        if currentBook?.id == bookID {
             togglePlayPause()
             return
         }
-        do {
-            let detail = try await session.api.book(id: bookID)
-            play(detail: detail, chapterIndex: chapterIndex)
-        } catch {
-            // Detail load failed; keep current playback.
+        guard let detail = try? await session.api.book(id: bookID) else { return }
+        play(detail: detail)
+    }
+
+    func play(detail: BookDetail, chapterIndex: Int? = nil, position: Double? = nil) {
+        let sorted = detail.sortedChapters
+        guard !sorted.isEmpty else { return }
+
+        currentBook = detail
+        let resolvedIndex: Int = {
+            if let chapterIndex, sorted.indices.contains(chapterIndex) {
+                return chapterIndex
+            }
+            if let resumeID = detail.resumeChapterId,
+               let idx = sorted.firstIndex(where: { $0.id == resumeID }) {
+                return idx
+            }
+            return 0
+        }()
+
+        let resolvedPosition = position ?? Double(max(0, detail.resumePositionSec))
+        loadChapter(index: resolvedIndex, startAt: resolvedPosition, shouldPlay: true)
+        Task { await loadArtwork(for: detail.id) }
+    }
+
+    private func loadChapter(index: Int, startAt position: Double, shouldPlay: Bool) {
+        guard let book = currentBook else { return }
+        let sorted = book.sortedChapters
+        guard sorted.indices.contains(index) else { return }
+        let chapter = sorted[index]
+
+        currentChapterIndex = index
+        currentPosition = max(0, position)
+        currentDuration = Double(max(1, chapter.durationSec))
+
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+
+        let item = playerItem(for: book, chapter: chapter)
+        item.preferredForwardBufferDuration = 20
+        player.replaceCurrentItem(with: item)
+        activateSession()
+
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.handleChapterEnded()
+            }
+        }
+
+        if position > 0 {
+            let seekTime = CMTime(seconds: position, preferredTimescale: 600)
+            let tolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+            player.seek(to: seekTime, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if shouldPlay {
+                        self.player.play()
+                        self.player.rate = self.rate
+                        self.isPlaying = true
+                    }
+                    self.publishNowPlaying()
+                }
+            }
+        } else {
+            if shouldPlay {
+                player.play()
+                player.rate = rate
+                isPlaying = true
+            }
+            publishNowPlaying()
         }
     }
 
-    func play(detail: BookDetail, chapterIndex: Int? = nil, position: TimeInterval? = nil) {
-        currentBook = detail
-        coverArtwork = nil
-        Task { await loadArtwork() }
-
-        let startIndex: Int
-        let startPosition: TimeInterval
-        if let chapterIndex, chapters.indices.contains(chapterIndex) {
-            startIndex = chapterIndex
-            startPosition = position ?? 0
-        } else if !detail.isCompleted,
-                  let resumeID = detail.resumeChapterId,
-                  let resumeIndex = chapters.firstIndex(where: { $0.id == resumeID }) {
-            startIndex = resumeIndex
-            startPosition = position ?? TimeInterval(detail.resumePositionSec)
-        } else {
-            startIndex = 0
-            startPosition = 0
+    private func playerItem(for book: BookDetail, chapter: Chapter) -> AVPlayerItem {
+        if let localURL = downloads.existingOfflineFile(for: book, chapter: chapter) {
+            return AVPlayerItem(url: localURL)
         }
-        loadChapter(startIndex, position: startPosition, shouldPlay: true)
+        let remoteURL = session.api.chapterStreamURL(for: chapter.id, streamPath: chapter.streamUrl)
+            ?? URL(fileURLWithPath: "/")
+        let headers = session.api.authorizedHeaderValue()
+        let asset = AVURLAsset(
+            url: remoteURL,
+            options: ["AVURLAssetHTTPHeaderFieldsKey": headers]
+        )
+        return AVPlayerItem(asset: asset)
     }
 
     func togglePlayPause() {
@@ -106,316 +194,257 @@ final class PlaybackController {
     }
 
     func resume() {
-        guard player.currentItem != nil else { return }
+        guard currentBook != nil else { return }
         activateSession()
         player.play()
         player.rate = rate
         isPlaying = true
-        updateNowPlaying()
-        becomeNowPlayingApp()
+        publishNowPlaying()
     }
 
     func pause() {
         player.pause()
         isPlaying = false
-        updateNowPlaying()
-        Task { await syncProgress() }
+        publishNowPlaying()
+        Task { await syncProgress(force: true) }
     }
 
-    func seek(to time: TimeInterval) {
-        let clamped = max(0, min(time, currentDuration > 0 ? currentDuration : time))
+    func setPlaybackRate(_ newRate: Float) {
+        rate = newRate
+    }
+
+    func seek(to seconds: Double) {
+        let clamped = max(0, min(seconds, max(currentDuration, 1)))
         currentPosition = clamped
-        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-        updateNowPlaying()
+        let time = CMTime(seconds: clamped, preferredTimescale: 600)
+        let tolerance = CMTime(seconds: 0.25, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.publishNowPlaying()
+                await self.syncProgress(force: true)
+            }
+        }
     }
 
-    func skip(by seconds: TimeInterval) {
-        seek(to: currentPosition + seconds)
+    func skip(by delta: Double) {
+        seek(to: currentPosition + delta)
     }
 
-    func skipToNextChapter() {
-        guard currentChapterIndex + 1 < chapters.count else { return }
-        loadChapter(currentChapterIndex + 1, position: 0, shouldPlay: true)
-        Task { await syncProgress() }
+    func skipBy(seconds delta: Double) {
+        seek(to: currentPosition + delta)
     }
 
     func skipToPreviousChapter() {
-        if currentPosition > 3 {
+        guard canSkipPreviousChapter else {
             seek(to: 0)
             return
         }
-        guard currentChapterIndex > 0 else {
-            seek(to: 0)
-            return
-        }
-        loadChapter(currentChapterIndex - 1, position: 0, shouldPlay: true)
-        Task { await syncProgress() }
+        loadChapter(index: currentChapterIndex - 1, startAt: 0, shouldPlay: isPlaying)
+    }
+
+    func skipToNextChapter() {
+        guard canSkipNextChapter else { return }
+        loadChapter(index: currentChapterIndex + 1, startAt: 0, shouldPlay: isPlaying)
     }
 
     func startSleepTimer(minutes: Int) {
-        sleepTask?.cancel()
-        let duration = TimeInterval(minutes * 60)
-        let end = Date().addingTimeInterval(duration)
-        sleepEndsAt = end
-        sleepRemaining = duration
-        sleepTask = Task { [weak self] in
+        cancelSleepTimer()
+        let totalSeconds = max(1, minutes * 60)
+        sleepTimerRemainingSec = totalSeconds
+        let endDate = Date().addingTimeInterval(TimeInterval(totalSeconds))
+        sleepEndsAt = endDate
+
+        sleepTimerTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let remaining = max(0, end.timeIntervalSinceNow)
-                self.sleepRemaining = remaining
-                if remaining == 0 {
+                let remaining = Int(ceil(endDate.timeIntervalSinceNow))
+                if remaining <= 0 {
+                    self.sleepTimerRemainingSec = nil
+                    self.sleepEndsAt = nil
                     self.pause()
-                    self.clearSleepTimer()
-                    return
+                    break
                 }
-                try? await Task.sleep(for: .milliseconds(min(1000, remaining * 1000)))
+                self.sleepTimerRemainingSec = remaining
+                try? await Task.sleep(for: .seconds(1))
             }
         }
     }
 
     func cancelSleepTimer() {
-        sleepTask?.cancel()
-        clearSleepTimer()
-    }
-
-    private func clearSleepTimer() {
-        sleepTask = nil
+        sleepTimerTask?.cancel()
+        sleepTimerTask = nil
+        sleepTimerRemainingSec = nil
         sleepEndsAt = nil
-        sleepRemaining = nil
     }
 
-    private func loadChapter(_ index: Int, position: TimeInterval, shouldPlay: Bool) {
-        guard let book = currentBook, chapters.indices.contains(index) else { return }
-        currentChapterIndex = index
-        let chapter = chapters[index]
-        currentDuration = TimeInterval(chapter.durationSec)
-        currentPosition = position
-
-        let item = playerItem(for: book, chapter: chapter)
-        player.replaceCurrentItem(with: item)
-        applyItemMetadata(item, book: book, chapter: chapter)
-        activateSession()
-
-        let seekTime = CMTime(seconds: max(0, position), preferredTimescale: 600)
-        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            guard let self else { return }
-            if shouldPlay {
-                self.player.play()
-                self.player.rate = self.rate
-                self.isPlaying = true
-            }
-            self.updateNowPlaying()
-            self.becomeNowPlayingApp()
-        }
-    }
-
-    private func playerItem(for book: BookDetail, chapter: Chapter) -> AVPlayerItem {
-        if let local = downloads.localFile(for: book, chapter: chapter) {
-            return AVPlayerItem(url: local)
-        }
-        let remote = session.api.audioURL(chapterID: chapter.id) ?? URL(string: "about:blank")!
-        var headers = ["User-Agent": "Audex-iOS"]
-        if let token = session.api.token {
-            headers["Authorization"] = "Bearer \(token)"
-        }
-        let asset = AVURLAsset(url: remote, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        return AVPlayerItem(asset: asset)
-    }
-
-    private func configureObservers() {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            MainActor.assumeIsolated {
-                self?.handleTime(time)
-            }
-        }
-
-        statusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
-            let playing = player.timeControlStatus == .playing
-            Task { @MainActor [weak self] in
-                self?.isPlaying = playing
-                self?.updateNowPlaying()
-            }
-        }
-
-        endObserver = NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            let endedItem = notification.object as? AVPlayerItem
-            MainActor.assumeIsolated {
-                self?.handleItemEnded(endedItem)
-            }
-        }
-    }
-
-    private func handleTime(_ time: CMTime) {
-        guard time.isNumeric else { return }
-        currentPosition = time.seconds
-        if let duration = player.currentItem?.duration, duration.isNumeric, duration.seconds > 0 {
-            currentDuration = duration.seconds
-        }
-        if isPlaying, Date().timeIntervalSince(lastSync) > 10 {
-            lastSync = Date()
-            Task { await syncProgress() }
-        }
-        updateNowPlayingElapsed()
-    }
-
-    private func handleItemEnded(_ item: AVPlayerItem?) {
-        guard let item, item == player.currentItem else { return }
-        if currentChapterIndex + 1 < chapters.count {
-            loadChapter(currentChapterIndex + 1, position: 0, shouldPlay: true)
-            Task { await syncProgress() }
+    private func handleChapterEnded() async {
+        if canSkipNextChapter {
+            loadChapter(index: currentChapterIndex + 1, startAt: 0, shouldPlay: true)
+            await syncProgress(force: true)
         } else {
             isPlaying = false
-            player.pause()
-            Task { await syncProgress() }
-            updateNowPlaying()
+            await syncProgress(force: true)
+            await library.refresh()
         }
     }
 
-    private func syncProgress() async {
+    private func installTimeObserver() {
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+            guard let self else { return }
+            Task { @MainActor in
+                let sec = time.seconds
+                if sec.isFinite && sec >= 0 {
+                    self.currentPosition = sec
+                }
+                if let itemDuration = self.player.currentItem?.duration.seconds,
+                   itemDuration.isFinite && itemDuration > 0 {
+                    self.currentDuration = itemDuration
+                }
+                if self.isPlaying {
+                    self.publishNowPlaying()
+                    await self.syncProgress(force: false)
+                }
+            }
+        }
+    }
+
+    func syncProgress(force: Bool) async {
         guard let book = currentBook,
               let chapter = currentChapter,
               let userID = session.userID else { return }
+
+        let now = Date()
+        if !force && now.timeIntervalSince(lastSyncDate) < 10 {
+            return
+        }
+        lastSyncDate = now
+
         let update = ProgressUpdate(
             bookId: book.id,
             chapterId: chapter.id,
-            positionSec: Int(currentPosition.rounded(.towardZero))
+            positionSec: Int(currentPosition.rounded())
         )
-        try? await session.api.updateProgress(userID: userID, update: update)
+        try? await session.api.updateProgress(userID: userID, progress: update)
+    }
+
+    private func configureAudioSession() {
+        #if os(iOS)
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .longFormAudio)
+        } catch {
+            // Audio session will still fall back to default playback.
+        }
+        #endif
     }
 
     private func activateSession() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        let audio = AVAudioSession.sharedInstance()
-        try? audio.setCategory(.playback, mode: .spokenAudio, options: [])
-        try? audio.setActive(true)
-        #endif
         #if os(iOS)
-        UIApplication.shared.beginReceivingRemoteControlEvents()
+        try? AVAudioSession.sharedInstance().setActive(true)
+        if nowPlayingSession == nil {
+            let mpSession = MPNowPlayingSession(players: [player])
+            mpSession.automaticallyPublishesNowPlayingInfo = false
+            configureRemoteCommands(on: mpSession.remoteCommandCenter)
+            nowPlayingSession = mpSession
+        }
+        nowPlayingSession?.becomeActiveIfPossible()
         #endif
     }
 
-    private func becomeNowPlayingApp() {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        nowPlayingSession.becomeActiveIfPossible { _ in }
-        #endif
-    }
-
-    private func applyItemMetadata(_ item: AVPlayerItem, book: BookDetail, chapter: Chapter) {
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        item.nowPlayingInfo = nowPlayingDictionary(book: book, chapter: chapter)
-        #endif
-    }
-
-    private func configureRemoteCommands() {
-        guard !commandsConfigured else { return }
-        commandsConfigured = true
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        let center = nowPlayingSession.remoteCommandCenter
-        #else
-        let center = MPRemoteCommandCenter.shared()
-        #endif
+    private func configureRemoteCommands(on center: MPRemoteCommandCenter) {
         center.playCommand.isEnabled = true
-        center.pauseCommand.isEnabled = true
-        center.togglePlayPauseCommand.isEnabled = true
-        center.nextTrackCommand.isEnabled = true
-        center.previousTrackCommand.isEnabled = true
-        center.skipForwardCommand.isEnabled = true
-        center.skipBackwardCommand.isEnabled = true
-        center.skipForwardCommand.preferredIntervals = [15]
-        center.skipBackwardCommand.preferredIntervals = [15]
-        center.changePlaybackPositionCommand.isEnabled = true
-
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.resume() }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.resume() }
             return .success
         }
+
+        center.pauseCommand.isEnabled = true
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.pause() }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.pause() }
             return .success
         }
+
+        center.togglePlayPauseCommand.isEnabled = true
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.togglePlayPause() }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.togglePlayPause() }
             return .success
         }
+
+        center.skipForwardCommand.isEnabled = true
+        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.skipBy(seconds: 30) }
+            return .success
+        }
+
+        center.skipBackwardCommand.isEnabled = true
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.skipBy(seconds: -15) }
+            return .success
+        }
+
+        center.nextTrackCommand.isEnabled = true
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.skipToNextChapter() }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.skipToNextChapter() }
             return .success
         }
+
+        center.previousTrackCommand.isEnabled = true
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.skipToPreviousChapter() }
+            guard let self else { return .commandFailed }
+            Task { @MainActor in self.skipToPreviousChapter() }
             return .success
         }
-        center.skipForwardCommand.addTarget { [weak self] event in
-            let seconds = (event as? MPSkipIntervalCommandEvent)?.interval ?? 15
-            Task { @MainActor in self?.skip(by: seconds) }
-            return .success
-        }
-        center.skipBackwardCommand.addTarget { [weak self] event in
-            let seconds = (event as? MPSkipIntervalCommandEvent)?.interval ?? 15
-            Task { @MainActor in self?.skip(by: -seconds) }
-            return .success
-        }
+
+        center.changePlaybackPositionCommand.isEnabled = true
         center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            Task { @MainActor in self?.seek(to: event.positionTime) }
+            guard let self, let posEvent = event as? MPChangePlaybackPositionCommandEvent else {
+                return .commandFailed
+            }
+            Task { @MainActor in self.seek(to: posEvent.positionTime) }
             return .success
         }
     }
 
-    private func loadArtwork() async {
-        guard let book = currentBook, book.hasCover, let url = session.api.coverURL(for: book.id) else { return }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            #if os(macOS)
-            guard let image = NSImage(data: data) else { return }
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-            #else
-            guard let image = UIImage(data: data) else { return }
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-            #endif
-            coverArtwork = artwork
-            updateNowPlaying()
-        } catch {
-            return
-        }
-    }
-
-    private func nowPlayingDictionary(book: BookDetail? = nil, chapter: Chapter? = nil) -> [String: Any] {
-        let book = book ?? currentBook
-        let chapter = chapter ?? currentChapter
+    private func publishNowPlaying() {
+        guard let book = currentBook, let chapter = currentChapter else { return }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: chapter?.title ?? book?.displayTitle ?? "Audex",
-            MPMediaItemPropertyAlbumTitle: book?.displayTitle ?? "",
-            MPMediaItemPropertyArtist: book?.artistLine ?? "",
-            MPMediaItemPropertyPlaybackDuration: currentDuration > 0 ? currentDuration : TimeInterval(chapter?.durationSec ?? 0),
+            MPMediaItemPropertyTitle: chapter.title,
+            MPMediaItemPropertyAlbumTitle: book.displayTitle,
+            MPMediaItemPropertyArtist: book.author,
+            MPMediaItemPropertyPlaybackDuration: currentDuration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentPosition,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(rate) : 0,
-            MPNowPlayingInfoPropertyDefaultPlaybackRate: Double(rate),
-            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? rate : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyChapterNumber: currentChapterIndex + 1,
+            MPNowPlayingInfoPropertyChapterCount: book.sortedChapters.count
         ]
-        if let coverArtwork {
-            info[MPMediaItemPropertyArtwork] = coverArtwork
+        if let artworkImage, artworkBookID == book.id {
+            info[MPMediaItemPropertyArtwork] = artworkImage
         }
-        return info
-    }
-
-    private func updateNowPlaying() {
-        let info = nowPlayingDictionary()
-        #if os(iOS) || os(tvOS) || os(visionOS)
-        player.currentItem?.nowPlayingInfo = info
-        nowPlayingSession.nowPlayingInfoCenter.nowPlayingInfo = info
-        nowPlayingSession.nowPlayingInfoCenter.playbackState = isPlaying ? .playing : .paused
+        #if os(iOS)
+        nowPlayingSession?.nowPlayingInfoCenter.nowPlayingInfo = info
         #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-        MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }
 
-    private func updateNowPlayingElapsed() {
-        updateNowPlaying()
+    private func loadArtwork(for bookID: Int) async {
+        #if canImport(UIKit)
+        guard let url = session.api.coverURL(for: bookID) else { return }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data) else { return }
+        artworkBookID = bookID
+        artworkImage = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        publishNowPlaying()
+        #endif
     }
 }

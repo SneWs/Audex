@@ -31,11 +31,19 @@ struct SearchView: View {
                 } else if filtered.isEmpty {
                     ContentUnavailableView("No results", systemImage: "magnifyingglass", description: Text("Try a broader search."))
                 } else {
-                    BookGrid(books: filtered)
+                    ScrollView {
+                        BookGrid(books: filtered)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 24)
+                    }
                 }
             }
             .background(AudexColor.background.ignoresSafeArea())
             .navigationTitle("Search")
+            .navigationDestination(for: Book.self) { book in
+                BookDetailView(bookID: book.id, initialBook: book)
+            }
             .navigationDestination(for: Int.self) { bookID in
                 BookDetailView(bookID: bookID)
             }
