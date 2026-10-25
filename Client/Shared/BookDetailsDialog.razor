@@ -84,6 +84,17 @@
                     </MudText>
                 }
 
+                @if (!_book.IsCompleted)
+                {
+                    <div class="d-flex align-center mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.CheckCircle" OnClick="MarkCompleteAsync"
+                                   Disabled="_loading || _markingComplete">
+                            @(_markingComplete ? "Saving…" : "Mark as complete")
+                        </MudButton>
+                    </div>
+                }
+
                 @if (!string.IsNullOrWhiteSpace(_book.Description))
                 {
                     <MudPaper Outlined="true" Class="pa-3">
@@ -267,6 +278,7 @@
     BookDetailDto? _book;
     bool _loading = true;
     bool _rescanning;
+    bool _markingComplete;
     bool _savingCustomTitle;
     bool _playlistsLoading = true;
     bool _savingPlaylist;
@@ -400,6 +412,41 @@
         }
     }
 
+    async Task MarkCompleteAsync()
+    {
+        if (_book == null)
+            return;
+
+        _markingComplete = true;
+        try
+        {
+            var response = await Http.PutAsync($"/api/books/{_book.Id}/complete", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadBookAsync();
+                _bookChanged = true;
+                Snackbar.Add("Marked as complete.", Severity.Success);
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _book = null;
+                _error = "Book is no longer available in your library.";
+                Snackbar.Add("Book was not found.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Unable to mark this book as complete. Please try again.", Severity.Error);
+            }
+        }
+        catch
+        {
+            Snackbar.Add("Unable to mark this book as complete. Please try again.", Severity.Error);
+        }
+        finally
+        {
+            _markingComplete = false;
+        }
+    }
     void OnCustomTitleChanged(string value) => _customTitleInput = value;
 
     async Task SaveCustomTitleAsync()
