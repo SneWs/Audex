@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
                     } else if (!authRepository.isLoggedIn()) {
                         initialDestination = Screen.Login.route
                     } else {
+                        authRepository.refreshIfNearingExpiry()
                         val result = bookRepository.getBooks()
                         val hasContinueBooks = result.getOrNull()?.any { it.isStarted && !it.isCompleted } == true
                         initialDestination = if (hasContinueBooks) Screen.Continue.route else Screen.Library.route

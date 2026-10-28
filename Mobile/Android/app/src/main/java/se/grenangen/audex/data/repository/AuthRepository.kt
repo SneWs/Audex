@@ -64,6 +64,16 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    /**
+     * Refreshes the token if it is nearing expiry. Safe to call repeatedly;
+     * does nothing when not logged in or when the token is still valid.
+     */
+    suspend fun refreshIfNearingExpiry() {
+        if (!isLoggedIn()) return
+        if (!isTokenNearExpiry()) return
+        refreshToken()
+    }
+
     fun isTokenNearExpiry(): Boolean = tokenManager.isTokenNearExpiry()
 
     fun logout() {
