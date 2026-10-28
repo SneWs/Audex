@@ -48,7 +48,7 @@ struct SettingsView: View {
                 }
 
                 Section("Account") {
-                    LabeledContent("Signed in as", value: session.account?.email ?? "—")
+                    LabeledContent("Signed in as", value: session.account?.email ?? JWTClaims.email(from: session.token ?? "") ?? "—")
                 }
 
                 Section {

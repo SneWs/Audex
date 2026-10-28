@@ -122,6 +122,14 @@ final class APIClient {
         return try await request("POST", path: "refresh", authorized: true)
     }
 
+    /// Refreshes the token if it is nearing expiry. Safe to call repeatedly;
+    /// does nothing when there is no token or when the token is still valid.
+    func refreshIfNearingExpiry() async {
+        guard let token, !token.isEmpty else { return }
+        guard JWTClaims.isNearExpiry(token) else { return }
+        _ = await attemptTokenRefresh()
+    }
+
     func books() async throws -> [Book] {
         try await request("GET", path: "books")
     }

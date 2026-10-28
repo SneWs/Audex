@@ -100,6 +100,11 @@ final class AppSession {
         }
     }
 
+    func refreshTokenIfNearingExpiry() async {
+        guard isLoggedIn else { return }
+        await api.refreshIfNearingExpiry()
+    }
+
     func updateEmail(newEmail: String, currentPassword: String) async throws -> String {
         let response = try await api.changeEmail(newEmail: newEmail, currentPassword: currentPassword)
         token = response.token

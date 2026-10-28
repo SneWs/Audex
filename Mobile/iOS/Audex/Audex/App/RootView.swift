@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -15,6 +16,11 @@ struct RootView: View {
         }
         .preferredColorScheme(session.isDarkMode ? .dark : .light)
         .tint(AudexColor.coral)
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task { await session.refreshTokenIfNearingExpiry() }
+            }
+        }
     }
 }
 

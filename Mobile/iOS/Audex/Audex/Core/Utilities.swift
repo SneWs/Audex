@@ -77,6 +77,14 @@ enum JWTClaims {
         return nil
     }
 
+    static func email(from token: String) -> String? {
+        let payload = payload(from: token)
+        let emailClaim = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+        if let value = payload?[emailClaim] as? String { return value }
+        if let value = payload?["email"] as? String { return value }
+        return nil
+    }
+
     static func isNearExpiry(_ token: String, threshold: TimeInterval = 300) -> Bool {
         guard let payload = payload(from: token) else { return true }
         let exp: TimeInterval
