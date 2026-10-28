@@ -35,6 +35,20 @@ class AuthRepository @Inject constructor(
         }
     }
 
+    fun getEmail(): String? {
+        val token = getToken() ?: return null
+        return try {
+            val parts = token.split(".")
+            if (parts.size != 3) return null
+            val payload = String(Base64.decode(parts[1], Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
+            val jsonObject = json.parseToJsonElement(payload).jsonObject
+            jsonObject["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"]?.jsonPrimitive?.content
+                ?: jsonObject["email"]?.jsonPrimitive?.content
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun login(request: LoginRequest): Result<AuthResponse> {
         return try {
             val response = apiService.login(request)

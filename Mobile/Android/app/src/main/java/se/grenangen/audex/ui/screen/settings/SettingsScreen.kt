@@ -33,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     var successMessage by mutableStateOf<String?>(null)
     var isValidating by mutableStateOf(false)
     val darkMode = settingsManager.darkMode
+    val email: String? = authRepository.getEmail()
 
     fun setDarkMode(enabled: Boolean) {
         settingsManager.setDarkMode(enabled)
@@ -203,6 +204,19 @@ fun SettingsScreen(
             if (onLogout != null) {
                 Spacer(modifier = Modifier.height(32.dp))
                 HorizontalDivider()
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Account",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (viewModel.email != null) {
+                    ListItem(
+                        headlineContent = { Text("Email") },
+                        supportingContent = { Text(viewModel.email) }
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = { showLogoutDialog = true },
