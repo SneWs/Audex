@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.window.core.layout.WindowSizeClass
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +86,18 @@ class MainActivity : ComponentActivity() {
                 } else {
                     val startDestination = initialDestination!!
                     val navController = rememberNavController()
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    val scope = rememberCoroutineScope()
+
+                    DisposableEffect(lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (event == Lifecycle.Event.ON_RESUME) {
+                                scope.launch { authRepository.refreshIfNearingExpiry() }
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                    }
 
                     LaunchedEffect(navController) {
                         authEventBus.events.collect { event ->
@@ -103,7 +118,6 @@ class MainActivity : ComponentActivity() {
                     val isTopLevelDestination = currentDestination?.route in topLevelRoutes
 
                     val drawerState = remember(currentDestination?.route) { DrawerState(DrawerValue.Closed) }
-                    val scope = rememberCoroutineScope()
 
                     val navigationContent = @Composable {
                         Spacer(Modifier.height(12.dp))
