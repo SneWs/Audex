@@ -28,6 +28,7 @@ struct MiniPlayerBar: View {
                 SleepTimerSheet()
                     #if os(iOS)
                     .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
                     #endif
             }
             #if os(macOS)
@@ -50,6 +51,19 @@ struct MiniPlayerBar: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
             Spacer(minLength: 8)
+            if let remaining = playback.sleepRemaining {
+                Button {
+                    showSleepTimer = true
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer")
+                        Text(DurationFormat.short(remaining))
+                            .font(.caption2.monospacedDigit())
+                    }
+                    .foregroundStyle(AudexColor.primary)
+                }
+                .buttonStyle(.plain)
+            }
             Button {
                 playback.togglePlayPause()
             } label: {
@@ -117,9 +131,10 @@ struct MiniPlayerBar: View {
                         Image(systemName: "timer")
                         if let remaining = playback.sleepRemaining {
                             Text(DurationFormat.short(remaining))
-                                .font(.caption2)
+                                .font(.caption2.monospacedDigit())
                         }
                     }
+                    .foregroundStyle(playback.sleepEndsAt != nil ? AudexColor.primary : .primary)
                 }
             }
             .padding(.horizontal, 12)
@@ -139,39 +154,46 @@ struct NowPlayingView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                background
-                VStack(spacing: 20) {
-                    if let book = playback.currentBook {
-                        Text(book.displayTitle)
-                            .font(.title2.bold())
-                            .multilineTextAlignment(.center)
-                        Text(book.artistLine)
-                            .font(.headline)
-                            .foregroundStyle(AudexColor.onSurfaceVariant)
-                            .multilineTextAlignment(.center)
-                        if let chapter = playback.currentChapter {
-                            Text("\(chapter.title) (\(playback.currentChapterIndex + 1)/\(playback.chapters.count))")
-                                .font(.subheadline)
-                                .foregroundStyle(AudexColor.onSurfaceVariant)
-                                .lineLimit(2)
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(spacing: 20) {
+                        if let book = playback.currentBook {
+                            Text(book.displayTitle)
+                                .font(.title2.bold())
                                 .multilineTextAlignment(.center)
-                        }
+                            Text(book.artistLine)
+                                .font(.headline)
+                                .foregroundStyle(AudexColor.onSurfaceVariant)
+                                .multilineTextAlignment(.center)
+                            if let chapter = playback.currentChapter {
+                                Text("\(chapter.title) (\(playback.currentChapterIndex + 1)/\(playback.chapters.count))")
+                                    .font(.subheadline)
+                                    .foregroundStyle(AudexColor.onSurfaceVariant)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                            }
 
-                        if verticalSizeClass != .compact {
-                            CoverImage(bookID: book.id, hasCover: book.hasCover, cornerRadius: 24)
-                                .frame(width: 220, height: 220)
-                                .shadow(radius: 16, y: 8)
-                                .padding(.vertical, 8)
-                        }
+                            if verticalSizeClass != .compact {
+                                CoverImage(bookID: book.id, hasCover: book.hasCover, cornerRadius: 24)
+                                    .frame(width: 200, height: 200)
+                                    .shadow(radius: 16, y: 8)
+                                    .padding(.vertical, 4)
+                            }
 
-                        slider
-                        controls
-                    } else {
-                        ContentUnavailableView("No Book Playing", systemImage: "headphones")
+                            slider
+                            controls
+                        } else {
+                            ContentUnavailableView("No Book Playing", systemImage: "headphones")
+                        }
                     }
+                    .padding(24)
+                    .frame(width: proxy.size.width)
+                    .frame(minHeight: proxy.size.height)
                 }
-                .padding(24)
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .background {
+                background
             }
             .navigationTitle("Now Playing")
             #if os(iOS)
@@ -191,12 +213,14 @@ struct NowPlayingView: View {
                 SleepTimerSheet()
                     #if os(iOS)
                     .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
                     #endif
             }
             .sheet(isPresented: $showChapters) {
                 chapterList
                     #if os(iOS)
                     .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
                     #endif
             }
         }
@@ -241,14 +265,14 @@ struct NowPlayingView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 18) {
+        VStack(spacing: 18) {
+            HStack(spacing: 24) {
                 if playback.hasMultipleChapters {
                     Button {
                         playback.skipToPreviousChapter()
                     } label: {
                         Image(systemName: "backward.end.fill")
-                            .font(.title)
+                            .font(.title2)
                     }
                     .disabled(playback.currentChapterIndex == 0)
                 }
@@ -279,7 +303,7 @@ struct NowPlayingView: View {
                         playback.skipToNextChapter()
                     } label: {
                         Image(systemName: "forward.end.fill")
-                            .font(.title)
+                            .font(.title2)
                     }
                     .disabled(playback.currentChapterIndex >= playback.chapters.count - 1)
                 }
@@ -299,11 +323,15 @@ struct NowPlayingView: View {
                         }
                     }
                 } label: {
-                    Text(speedLabel(playback.rate))
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(AudexColor.primary.opacity(0.15), in: Capsule())
+                    HStack(spacing: 4) {
+                        Image(systemName: "gauge.with.dots.needle.67percent")
+                            .font(.caption)
+                        Text(speedLabel(playback.rate))
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(AudexColor.primary.opacity(0.15), in: Capsule())
                 }
 
                 Spacer()
@@ -311,13 +339,23 @@ struct NowPlayingView: View {
                 Button {
                     showSleepTimer = true
                 } label: {
-                    HStack {
+                    HStack(spacing: 6) {
                         Image(systemName: "timer")
                         if let remaining = playback.sleepRemaining {
                             Text(DurationFormat.clock(remaining))
-                                .font(.caption.monospacedDigit())
+                                .font(.subheadline.monospacedDigit().weight(.semibold))
+                        } else {
+                            Text("Sleep")
+                                .font(.subheadline.weight(.semibold))
                         }
                     }
+                    .foregroundStyle(playback.sleepEndsAt != nil ? AudexColor.primary : AudexColor.onSurface)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        (playback.sleepEndsAt != nil ? AudexColor.primary : AudexColor.onSurface).opacity(0.15),
+                        in: Capsule()
+                    )
                 }
             }
         }
@@ -349,9 +387,12 @@ struct NowPlayingView: View {
                 }
             }
             .navigationTitle("Chapters")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { showChapters = false }
+                    Button("Close", systemImage: "chevron.down") { showChapters = false }
                 }
             }
         }
@@ -369,23 +410,42 @@ struct SleepTimerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                    Button("\(minutes) minutes") {
-                        playback.startSleepTimer(minutes: minutes)
-                        dismiss()
+                if let remaining = playback.sleepRemaining {
+                    Section {
+                        HStack {
+                            Label("Time remaining", systemImage: "timer")
+                                .foregroundStyle(AudexColor.primary)
+                            Spacer()
+                            Text(DurationFormat.clock(remaining))
+                                .font(.body.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(AudexColor.primary)
+                        }
+                    }
+                }
+                Section {
+                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
+                        Button("\(minutes) minutes") {
+                            playback.startSleepTimer(minutes: minutes)
+                            dismiss()
+                        }
                     }
                 }
                 if playback.sleepEndsAt != nil {
-                    Button("Cancel timer", role: .destructive) {
-                        playback.cancelSleepTimer()
-                        dismiss()
+                    Section {
+                        Button("Cancel timer", role: .destructive) {
+                            playback.cancelSleepTimer()
+                            dismiss()
+                        }
                     }
                 }
             }
             .navigationTitle("Sleep timer")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Close", systemImage: "chevron.down") { dismiss() }
                 }
             }
         }
